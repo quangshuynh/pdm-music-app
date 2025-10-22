@@ -2,12 +2,13 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import bcrypt
 import datetime
+from app import App
 
 
 class LoginFrame(ttk.Frame):
     # Login / Signup page.
 
-    def __init__(self, parent, app):
+    def __init__(self, parent, app:App):
         super().__init__(parent)
         self.app = app
 
