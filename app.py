@@ -4,10 +4,8 @@ from tkinter import ttk, messagebox
 from dataclasses import dataclass
 from typing import Dict, Type, Optional
 
-# DB connector
-from db_connection import get_connection
+from db_connection import get_connection, close_tunnel
 
-# UI pages
 from ui.login import LoginFrame
 from ui.dashboard import DashboardFrame
 from ui.songs import SongsFrame
@@ -16,10 +14,10 @@ from ui.follow import FollowFrame
 
 @dataclass
 class Session:
-    #Holds runtime session state for the app
-    username: Optional[str] = None      # set after successful login
-    display_name: Optional[str] = None  # optional nice name
-    email: Optional[str] = None         # optional
+    # holds runtime session state for the app
+    username: Optional[str] = None      
+    display_name: Optional[str] = None  
+    email: Optional[str] = None         
 
 
 class App(tk.Tk):
@@ -58,10 +56,10 @@ class App(tk.Tk):
 
         #  connect to DB once; reconnect on failure when needed 
         try:
-            self.conn = get_connection()  # psycopg2 connection
+            self.conn = get_connection()  
         except Exception as e:
             messagebox.showerror("Database Error", f"Could not connect to the database.\n\n{e}")
-            # Fail fast so students catch credential issues immediately
+            # fail fast so students catch credential issues immediately
             self.destroy()
             sys.exit(1)
 
@@ -74,7 +72,7 @@ class App(tk.Tk):
 
         self.frames: Dict[str, tk.Frame] = {}
 
-        # Map route name -> Frame class
+        # map route name -> Frame class
         routes: Dict[str, Type[tk.Frame]] = {
             "Login": LoginFrame,
             "Dashboard": DashboardFrame,
@@ -82,7 +80,7 @@ class App(tk.Tk):
             "Follow": FollowFrame,
         }
 
-        # Create all frames up front (they can lazy-load data on visibility)
+        # create all frames up front (they can lazy-load data on visibility)
         for name, FrameCls in routes.items():
             frame = FrameCls(parent=container, app=self)  # pass app for access
             self.frames[name] = frame
@@ -91,10 +89,10 @@ class App(tk.Tk):
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
-        # Start at Login
+        # start at Login
         self.show_frame("Login")
 
-        # Handle window close: clean DB connection
+        # handle window close: clean DB connection
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     # routing helpers
@@ -108,7 +106,7 @@ class App(tk.Tk):
             try:
                 frame.on_show()
             except Exception as e:
-                # Do not crash the router if the page's refresh fails
+                # do not crash the router if the page's refresh fails
                 messagebox.showerror("View Error", f"{name} failed to load:\n{e}")
         frame.tkraise()
         self._update_title_suffix(name)
@@ -135,16 +133,13 @@ class App(tk.Tk):
                 cur.execute("SELECT 1")
         """
         try:
-            # If connection dropped, attempt to reopen
-            self.conn.poll()  # may raise if connection closed
+            # if connection closed (0=open, nonzero=closed in psycopg2)
+            if getattr(self.conn, "closed", 1):
+                self.conn = get_connection()
         except Exception:
-            # Try to reconnect once
-            try:
-                self.conn.close()
-            except Exception:
-                pass
             self.conn = get_connection()
         return self.conn.cursor()
+
 
     def exec_and_commit(self, sql_query: str, params: tuple = ()):
         """Small helper: run a write query and commit."""
@@ -159,7 +154,12 @@ class App(tk.Tk):
                 self.conn.close()
         except Exception:
             pass
+        try:
+            close_tunnel()
+        except Exception:
+            pass
         self.destroy()
+
 
 
 def main():

@@ -15,7 +15,7 @@ class LoginFrame(ttk.Frame):
         self.password_var = tk.StringVar()
 
         # Layout
-        ttk.Label(self, text="🎵 Music Information Database", font=("Arial", 18, "bold")).pack(pady=20)
+        ttk.Label(self, text="Toe Jam", font=("Arial", 18, "bold")).pack(pady=20)
         ttk.Label(self, text="Username:").pack()
         ttk.Entry(self, textvariable=self.username_var).pack(pady=5)
 
