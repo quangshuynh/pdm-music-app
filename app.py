@@ -6,10 +6,7 @@ from typing import Dict, Type, Optional
 
 from db_connection import get_connection, close_tunnel
 
-from ui.login import LoginFrame
-from ui.dashboard import DashboardFrame
-from ui.songs import SongsFrame
-from ui.follow import FollowFrame
+# Delay importing UI frames to avoid circular imports; they are imported inside App.__init__
 
 
 @dataclass
@@ -66,11 +63,20 @@ class App(tk.Tk):
         # track session for currently logged-in user
         self.session = Session()
 
+        # track session for currently logged-in user
+        self.session = Session()
+
         #  container & router 
         container = ttk.Frame(self)
         container.pack(fill="both", expand=True)
 
         self.frames: Dict[str, tk.Frame] = {}
+
+        # import UI frame classes here to avoid circular imports with ui.* modules
+        from ui.login import LoginFrame
+        from ui.dashboard import DashboardFrame
+        from ui.songs import SongsFrame
+        from ui.follow import FollowFrame
 
         # map route name -> Frame class
         routes: Dict[str, Type[tk.Frame]] = {
@@ -79,8 +85,6 @@ class App(tk.Tk):
             "Songs": SongsFrame,
             "Follow": FollowFrame,
         }
-
-        # create all frames up front (they can lazy-load data on visibility)
         for name, FrameCls in routes.items():
             frame = FrameCls(parent=container, app=self)  # pass app for access
             self.frames[name] = frame
