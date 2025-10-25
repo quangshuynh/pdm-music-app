@@ -74,6 +74,7 @@ class App(tk.Tk):
 
         # import UI frame classes here to avoid circular imports with ui.* modules
         from ui.login import LoginFrame
+        from ui.signup import SignupFrame
         from ui.dashboard import DashboardFrame
         from ui.songs import SongsFrame
         from ui.follow import FollowFrame
@@ -81,6 +82,7 @@ class App(tk.Tk):
         # map route name -> Frame class
         routes: Dict[str, Type[tk.Frame]] = {
             "Login": LoginFrame,
+            "Signup": SignupFrame,
             "Dashboard": DashboardFrame,
             "Songs": SongsFrame,
             "Follow": FollowFrame,

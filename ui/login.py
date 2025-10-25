@@ -6,7 +6,7 @@ from app import App
 
 
 class LoginFrame(ttk.Frame):
-    # Login / Signup page.
+    # Login 
 
     def __init__(self, parent, app:App):
         super().__init__(parent)
@@ -24,7 +24,7 @@ class LoginFrame(ttk.Frame):
         ttk.Entry(self, textvariable=self.password_var, show="*").pack(pady=5)
 
         ttk.Button(self, text="Login", command=self.login_user).pack(pady=10)
-        ttk.Button(self, text="Sign Up", command=self.signup_user).pack()
+        ttk.Button(self, text="Sign Up", command=self.go_to_signup).pack()
 
     #  Login logic 
     def login_user(self):
@@ -60,23 +60,9 @@ class LoginFrame(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"Database error:\n{e}")
 
-    #  Signup logic 
-    def signup_user(self):
-        username = self.username_var.get().strip()
-        password = self.password_var.get().strip()
-
-        if not username or not password:
-            messagebox.showwarning("Missing Info", "Please fill out all fields.")
-            return
-
-        hashed_pw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        now = datetime.datetime.now()
-
+    def go_to_signup(self):
+        """Navigate to the separate Signup page."""
         try:
-            self.app.exec_and_commit(
-                'INSERT INTO "USER" (username, password, creation_date) VALUES (%s, %s, %s)',
-                (username, hashed_pw, now)
-            )
-            messagebox.showinfo("Account Created", "Your account has been created. You can now log in.")
+            self.app.show_frame("Signup")
         except Exception as e:
-            messagebox.showerror("Signup Failed", f"Could not create account:\n{e}")
+            messagebox.showerror("Navigation Error", f"Could not open signup page:\n{e}")
