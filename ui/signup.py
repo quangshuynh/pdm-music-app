@@ -41,12 +41,12 @@ class SignupFrame(ttk.Frame):
         ttk.Label(form, text="Email:").grid(row=2, column=0, sticky="w", pady=4)
         ttk.Entry(form, textvariable=self.email_var).grid(row=2, column=1, pady=4)
 
-        # username / display
-        ttk.Label(form, text="Username:").grid(row=3, column=0, sticky="w", pady=4)
-        ttk.Entry(form, textvariable=self.username_var).grid(row=3, column=1, pady=4)
+        # dsplauy / username
+        ttk.Label(form, text="Display name:").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(form, textvariable=self.display_name_var).grid(row=3, column=1, pady=4)
 
-        ttk.Label(form, text="Display name:").grid(row=4, column=0, sticky="w", pady=4)
-        ttk.Entry(form, textvariable=self.display_name_var).grid(row=4, column=1, pady=4)
+        ttk.Label(form, text="Username:").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(form, textvariable=self.username_var).grid(row=4, column=1, pady=4)
 
         # password
         ttk.Label(form, text="Password:").grid(row=5, column=0, sticky="w", pady=4)
