@@ -1,0 +1,22 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Enabled",
+            "previewLimit": 50,
+            "server": "127.0.0.1",
+            "port": 5432,
+            "sshOptions": {
+                "port": 22,
+                "host": "starbug.cs.rit.edu",
+                "username": "qth9368",
+                "password": "Bennyisbullyism2207."
+            },
+            "driver": "PostgreSQL",
+            "name": "starbug.cs.rit.edu",
+            "database": "p320_48",
+            "username": "qth9368",
+            "password": "Bennyisbullyism2207.",
+            "connectionTimeout": 30
+        }
+    ]
+}
