@@ -110,9 +110,9 @@ class SignupFrame(ttk.Frame):
             hashed_pw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
             # Try to insert into USER table
-            sql = 'INSERT INTO "USER" (first_name, last_name, email, username, password, display_name) VALUES (%s, %s, %s, %s, %s, %s)'
+            # sql = 'INSERT INTO "USER" (first_name, last_name, email, username, password, display_name) VALUES (%s, %s, %s, %s, %s, %s)'
 
-            # sql = ('INSERT INTO "USER" ' '(first_name, last_name, email, username, password, display_name, creation_date)' 'VALUES (%s, %s, %s, %s, %s, %s, NOW())')
+            sql = ('INSERT INTO "USER" ' '(first_name, last_name, email, username, password, display_name, creation_date)' 'VALUES (%s, %s, %s, %s, %s, %s, NOW())')
 
             self.app.exec_and_commit(sql, (first, last, email, username, hashed_pw, display), )
 

@@ -51,8 +51,7 @@ class LoginFrame(ttk.Frame):
                 messagebox.showinfo("Success", f"Welcome back, {username}!")
 
                 # Update last accessed
-                now = datetime.datetime.now()
-                self.app.exec_and_commit('UPDATE "USER" SET last_accessed = %s WHERE username = %s', (now, username))
+                self.app.exec_and_commit('UPDATE "USER" SET last_accessed = NOW() WHERE username = %s', (username,))
 
                 self.app.safe_show("Dashboard")
             else:

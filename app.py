@@ -6,9 +6,6 @@ from typing import Dict, Type, Optional
 
 from db_connection import get_connection, close_tunnel
 
-# Delay importing UI frames to avoid circular imports; they are imported inside App.__init__
-
-
 @dataclass
 class Session:
     # holds runtime session state for the app
