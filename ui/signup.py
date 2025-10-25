@@ -125,7 +125,7 @@ class SignupFrame(ttk.Frame):
             self.app.safe_show("Dashboard")
 
         except Exception as e:
-            # Optional: inspect e for unique violations to show nicer messages
+            # inspect e for unique violations to show nicer messages
             messagebox.showerror("Signup Failed", f"Could not create account:\n{e}")
 
     def go_back(self):
