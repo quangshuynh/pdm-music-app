@@ -1,1 +1,1 @@
-pip install psycopg2-binary sshtunnel "paramiko<3" python-dotenv
+pip install psycopg2-binary sshtunnel "paramiko<3" python-dotenv tkinter
