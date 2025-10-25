@@ -44,8 +44,8 @@ class App(tk.Tk):
 
         # Basic window setup 
         self.title(self.TITLE)
-        self.geometry("1000x650")
-        self.minsize(900, 560)
+        self.geometry("1280x650")
+        self.minsize(1000, 560)
         self._set_style()
 
         #  connect to DB once; reconnect on failure when needed 
