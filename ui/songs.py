@@ -1,11 +1,10 @@
-# imports up top — keep these exactly
 import tkinter as tk
 from tkinter import ttk, messagebox
 from app import App
 
 class SongsFrame(ttk.Frame):
     """Read-only viewer for the `song` table with search + paging."""
-    TABLE = "song"  # <- change to "songs" if your table is named that
+    TABLE = "song"
 
     # column id, header text, width
     COLS = [
