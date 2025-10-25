@@ -50,7 +50,7 @@ class App(tk.Tk):
 
         #  connect to DB once; reconnect on failure when needed 
         try:
-            self.conn = get_connection()  
+            self.conn = get_connection()
         except Exception as e:
             messagebox.showerror("Database Error", f"Could not connect to the database.\n\n{e}")
             # fail fast so students catch credential issues immediately
