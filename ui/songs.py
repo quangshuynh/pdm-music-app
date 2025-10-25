@@ -15,7 +15,7 @@ class SongsFrame(ttk.Frame):
         ("release_date", "Release", 160),
     ]
 
-    # allowed fields to search (whitelist so we can safely splice column name)
+    # allowed fields to search (whitelist so code can safely splice column name)
     SEARCHABLE = ("title", "song_id", "group_id")
 
     def __init__(self, parent, app: App):
@@ -55,6 +55,10 @@ class SongsFrame(ttk.Frame):
 
         self.page_lbl = ttk.Label(bar, text="Page 1")
         self.page_lbl.pack(side="right")
+
+        # Back button
+        ttk.Button(self, text="Go to dashboard", command=lambda: app.safe_show("Dashboard")).pack()
+        self.page_lbl.pack(side="right", padx=(0,12))
 
         # --- Tree
         self.tree = ttk.Treeview(self, show="headings", height=16)
