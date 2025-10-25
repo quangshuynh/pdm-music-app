@@ -62,7 +62,7 @@ class SongsFrame(ttk.Frame):
         self.page_lbl.pack(side="right")
 
         # Back button
-        ttk.Button(self, text="Go to dashboard", command=lambda: app.safe_show("Dashboard")).pack(pady=(2,6))
+        ttk.Button(self, text="Back to dashboard", command=lambda: app.safe_show("Dashboard")).pack(pady=(2,6))
 
         # --- Tree
         self.tree = ttk.Treeview(self, show="headings", height=16)
