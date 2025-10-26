@@ -49,11 +49,13 @@ class FollowFrame(ttk.Frame):
         self.tree.pack(fill="both", expand=True, padx=10, pady=(0,10))
         self._setup_columns()
 
+        self.tree.bind("<Double-1>", self._on_double_click)
+
         self.status = ttk.Label(self, text="")
         self.status.pack(fill="x", padx=10, pady=5)
 
     # ---- Data Loading ----
-    def list_following(self, email_filter=None):
+    def _list_following(self, email_filter=None):
         me = self.app.session.username
 
         if not email_filter:
@@ -100,7 +102,7 @@ class FollowFrame(ttk.Frame):
     def refresh(self):
         try:
             term = self.search_var.get().strip()
-            rows = self.list_following(term if term else None)
+            rows = self._list_following(term if term else None)
 
             self.tree.delete(*self.tree.get_children())
             for username, followers, following, _ in rows:
@@ -138,6 +140,18 @@ class FollowFrame(ttk.Frame):
         with self.app.cursor() as cur:
             cur.execute(sql, (username,))
             return cur.fetchone() is not None
+        
+    def _on_double_click(self, event):
+        """ if user is double clicked, put that name in USER entry"""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        item_id = selected[0]
+        values = self.tree.item(item_id, "values")
+        if not values:
+            return
+        usernmae = values[0]
+        self.target_var.set(usernmae)
 
     # ---- Search
 
