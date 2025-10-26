@@ -161,7 +161,7 @@ class CollectionsFrame(ttk.Frame):
         with self.app.cursor() as cur:
             for sid in song_ids:
                 cur.execute(
-                    "INSERT INTO song_play (username, song_id, played_at) VALUES (%s, %s, NOW())",
+                    "INSERT INTO listen (listener_username, song_id, played_at) VALUES (%s, %s, NOW())",
                     (username, sid),
                 )
         self.app.conn.commit()
@@ -251,9 +251,9 @@ class CollectionsFrame(ttk.Frame):
         if not sid_str:
             return
         try:
-            sid = int(sid_str)
+            sid = sid_str
         except Exception:
-            messagebox.showwarning("Invalid", "Song ID must be a number.")
+            messagebox.showwarning("Invalid", "Song ID must be 1–20 letters/numbers only (A–Z, a–z, 0–9)")
             return
         try:
             with self.app.cursor() as cur:
