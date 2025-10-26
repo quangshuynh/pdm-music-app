@@ -4,15 +4,18 @@ from tkinter import ttk, messagebox
 class FollowFrame(ttk.Frame):
     """ View, follow, and unfollow other users. """
     COLS = [
-        ("followed_user_id", "Following", 200),
+        ("followed_user_id", "User", 200),
+        ("followers", "Followers", 100),
+        ("following", "Following", 100),
     ]
 
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
 
-        ttk.Label(self, text="Followers", font=("Arial", 16, "bold")).pack(pady=10)
+        ttk.Label(self, text="Following", font=("Arial", 16, "bold")).pack(pady=10)
 
+        
         bar = ttk.Frame(self)
         bar.pack(fill="x", padx=10, pady=6)
 
@@ -20,43 +23,99 @@ class FollowFrame(ttk.Frame):
         self.target_var = tk.StringVar()
         ttk.Entry(bar, textvariable=self.target_var, width=24).pack(side="left", padx=(6, 10))
 
+        # Buttons
         ttk.Button(bar, text="Follow", command=self.on_follow).pack(side="left", padx=5)
         ttk.Button(bar, text="Unfollow", command=self.on_unfollow).pack(side="left", padx=5)
         ttk.Button(bar, text="Refresh", command=self.refresh).pack(side="left", padx=5)
+        
+        # Search widgets
+        ttk.Label(bar, text="Search:").pack(side="left", padx=(0,6))
+        self.search_var = tk.StringVar()
+        self.search_entry = ttk.Entry(bar, textvariable=self.search_var, width=32)
+        self.search_entry.pack(side="left")
+        self.search_entry.bind("<Return>", lambda e: self.apply_search())
+
+        ttk.Button(bar, text="Search", command=self.apply_search).pack(side="left", padx=(8,0))
+        ttk.Button(bar, text="Clear", command=self.clear_search).pack(side="left", padx=(6,12))
+
         ttk.Button(bar, text="Back", command=lambda: app.safe_show("Dashboard")).pack(side="right")
 
         # ---- Tree View
-        ttk.Label(self, text="You are following:").pack(anchor="w", padx=10)
+        
+        self.tree_label = ttk.Label(self, text="You are following:")
+        self.tree_label.pack(anchor="w", padx=10)
+        
         self.tree = ttk.Treeview(self, show="headings", height=10)
         self.tree.pack(fill="both", expand=True, padx=10, pady=(0,10))
         self._setup_columns()
-
 
         self.status = ttk.Label(self, text="")
         self.status.pack(fill="x", padx=10, pady=5)
 
     # ---- Data Loading ----
-    def list_following(self):
-        sql = """
-            SELECT followed_user_id
-            FROM user_follow
-            WHERE follower_user_id = %s
-            ORDER BY followed_user_id ASC
-        """
+    def list_following(self, email_filter=None):
+        me = self.app.session.username
+
+        if not email_filter:
+            sql = """
+                SELECT
+                    uf.followed_user_id AS username,
+                    COUNT(DISTINCT f2.follower_user_id) AS followers,
+                    COUNT(DISTINCT f3.followed_user_id) AS following,
+                    TRUE AS is_followed
+                FROM user_follow uf
+                LEFT JOIN user_follow f2 ON f2.followed_user_id = uf.followed_user_id
+                LEFT JOIN user_follow f3 ON f3.follower_user_id = uf.followed_user_id
+                WHERE uf.follower_user_id = %s
+                GROUP BY uf.followed_user_id
+                ORDER BY uf.followed_user_id ASC;
+            """
+            params = [me]
+
+        # if searching by email
+        else:
+            sql = """
+                SELECT
+                    u.username,
+                    COUNT(DISTINCT f2.follower_user_id) AS followers,
+                    COUNT(DISTINCT f3.followed_user_id) AS following,
+                    CASE WHEN uf.follower_user_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_followed
+                FROM "USER" u
+                LEFT JOIN user_follow uf
+                    ON uf.followed_user_id = u.username
+                    AND uf.follower_user_id = %s
+                LEFT JOIN user_follow f2 ON f2.followed_user_id = u.username
+                LEFT JOIN user_follow f3 ON f3.follower_user_id = u.username
+                WHERE u.email ILIKE %s
+                GROUP BY u.username, uf.follower_user_id
+                ORDER BY u.username ASC;
+            """
+            params = [me, f"%{email_filter}%"]
+
         with self.app.cursor() as cur:
-            cur.execute(sql, (self.app.session.username,))
-            rows = cur.fetchall() or []
-        return [r[0] for r in rows]
-    
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+
     def refresh(self):
         try:
-            following = self.list_following()
+            term = self.search_var.get().strip()
+            rows = self.list_following(term if term else None)
+
             self.tree.delete(*self.tree.get_children())
-            for user in following:
-                self.tree.insert("", "end", values=(user,))
-            self.status.config(text = f"Following {len(following)} user(s).")
+            for username, followers, following, _ in rows:
+                self.tree.insert("", "end", values=(username, followers, following))
+
+            if not term:
+                self.status.config(text=f"Following {len(rows)} user(s).")
+                self.tree_label.config(text="You are following:")
+            else:
+                self.status.config(text=f"Search result: {len(rows)} user(s) found.")
+                self.tree_label.config(text="Search results:")
+
         except Exception as e:
             messagebox.showerror("Load Error", f"Could not load following list:\n{e}")
+
     # ---- UI Helpers ----
     def on_show(self):
         if not self.app.session.username:
@@ -80,6 +139,16 @@ class FollowFrame(ttk.Frame):
             cur.execute(sql, (username,))
             return cur.fetchone() is not None
 
+    # ---- Search
+
+    def apply_search(self):
+        self.refresh()
+
+    def clear_search(self):
+        self.search_var.set("")
+        self.refresh()
+
+    # ---- Follow/ Unfollow
     def on_follow(self):
         me = self.app.session.username
         target = self.target_var.get().strip()
