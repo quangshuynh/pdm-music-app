@@ -42,6 +42,7 @@ class SongsFrame(ttk.Frame):
         ("artist", "Artist", 200),
         ("album", "Album", 220),
         ("length", "Length", 80),
+        ("release_year", "Year", 80),
         ("listen_count", "Listens", 90),
     ]
 
@@ -252,8 +253,8 @@ class SongsFrame(ttk.Frame):
                     COALESCE(string_agg(DISTINCT sg.genre, ', '), '') AS genre,
 
                     -- Use earliest release date across albums for this song
-                    MIN(al.release_date) AS release_date,
-                    EXTRACT(YEAR FROM MIN(al.release_date)) AS release_year
+                    COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
+                    EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year
                 {self._build_base_from()}
                 {where_sql}
                 GROUP BY
@@ -286,7 +287,7 @@ class SongsFrame(ttk.Frame):
                 listen_count,
                 _genre,         # not displayed
                 _release_date,  # not displayed
-                _release_year,  # used only for sorting in SQL
+                release_year,  # used only for sorting in SQL
             ) in rows:
                 if song_id in seen:
                     continue
@@ -297,6 +298,7 @@ class SongsFrame(ttk.Frame):
                     artist or "",
                     album or "",
                     self._fmt_len(length_ms),
+                    str(int(release_year)) if release_year else "",
                     int(listen_count or 0),
                 ]
                 self.tree.insert("", "end", iid=f"song_{song_id}", values=values)
