@@ -44,9 +44,34 @@ class CollectionsFrame(ttk.Frame):
         self.tree.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._setup_columns()
 
+        # Songs in collection view
+        songs_frame = ttk.LabelFrame(self, text="Songs in Collection")
+        songs_frame.pack(fill="both", expand=True, padx=10, pady=(0, 6))
+        
+        # Songs list
+        self.songs_tree = ttk.Treeview(songs_frame, show="headings", height=8)
+        self.songs_tree.pack(fill="both", expand=True, pady=5)
+        
+        # Song columns
+        self.SONG_COLS = [
+            ("song_id", "Song ID", 100),
+            ("title", "Title", 300),
+            ("length", "Length", 80),
+            ("group_id", "Group ID", 100),
+        ]
+        
+        self.songs_tree["columns"] = [c[0] for c in self.SONG_COLS]
+        for col_id, header, width in self.SONG_COLS:
+            self.songs_tree.heading(col_id, text=header)
+            anchor = "w" if col_id in ("title", "song_id") else "center"
+            self.songs_tree.column(col_id, width=width, anchor=anchor, stretch=False)
+
         # Status
         self.status = ttk.Label(self, text="")
         self.status.pack(fill="x", padx=10, pady=(0, 6))
+
+        # Bind collection selection to update songs view
+        self.tree.bind('<<TreeviewSelect>>', self._on_collection_select)
 
     # ----- lifecycle -----
     def on_show(self):
@@ -182,8 +207,53 @@ class CollectionsFrame(ttk.Frame):
             self.status.config(
                 text=f"{len(rows)} collections - {total_songs} songs - {total_minutes:.2f} minutes"
             )
+            
+            # Clear songs view when refreshing collections
+            self.songs_tree.delete(*self.songs_tree.get_children())
         except Exception as e:
             messagebox.showerror("Collections Error", f"Could not load collections:\n{e}")
+
+    def _list_collection_songs(self, collection_id: str):
+        """Get all songs in a collection with details."""
+        sql = """
+            SELECT s.song_id, s.title, s.length_ms, s.group_id
+            FROM song s
+            JOIN song_within_collection sc ON sc.song_id = s.song_id
+            WHERE sc.collection_id = %s
+            ORDER BY s.title ASC
+        """
+        with self.app.cursor() as cur:
+            cur.execute(sql, (collection_id,))
+            return cur.fetchall()
+
+    def _on_collection_select(self, event=None):
+        """When a collection is selected, show its songs."""
+        self.songs_tree.delete(*self.songs_tree.get_children())
+        
+        sel = self._get_selected_collection()
+        if not sel:
+            return
+            
+        cid, name = sel
+        try:
+            songs = self._list_collection_songs(cid)
+            for song_id, title, length_ms, group_id in songs:
+                # Format length as MM:SS
+                length = ""
+                if length_ms is not None:
+                    total_sec = int(length_ms) // 1000
+                    mins, secs = divmod(total_sec, 60)
+                    length = f"{mins:02d}:{secs:02d}"
+                
+                values = [
+                    song_id or "",
+                    title or "",
+                    length,
+                    group_id or "",
+                ]
+                self.songs_tree.insert("", "end", values=values)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not load songs for collection:\n{e}")
 
         
     def on_new(self):
