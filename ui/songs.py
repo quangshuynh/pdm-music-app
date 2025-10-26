@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from typing import List, Tuple
 from app import App
 
 class SongsFrame(ttk.Frame):
@@ -61,13 +62,19 @@ class SongsFrame(ttk.Frame):
         self.page_lbl = ttk.Label(bar, text="Page 1")
         self.page_lbl.pack(side="right")
 
-        # Back button
-        ttk.Button(self, text="Back to dashboard", command=lambda: app.safe_show("Dashboard")).pack(pady=(2,6))
+        # Action buttons
+        action_bar = ttk.Frame(self)
+        action_bar.pack(fill="x", padx=10, pady=2)
+        ttk.Button(action_bar, text="Add to Collection", command=self.add_selected_to_collection).pack(side="left")
+        ttk.Button(action_bar, text="Back", command=lambda: app.safe_show("Dashboard")).pack(side="right")
 
         # --- Tree
-        self.tree = ttk.Treeview(self, show="headings", height=16)
+        self.tree = ttk.Treeview(self, show="headings", height=16, selectmode="extended")
         self.tree.pack(fill="both", expand=True, padx=10, pady=(0,10))
         self._setup_columns()
+
+        # Enable row selection binding
+        self.tree.bind('<<TreeviewSelect>>', lambda e: self._on_select())
 
         self.refresh()
 
@@ -88,6 +95,12 @@ class SongsFrame(ttk.Frame):
                 self.tree.heading(col_id, text=f"{header} {arrow}")
             else:
                 self.tree.heading(col_id, text=header)
+    
+    def _on_select(self):
+        """Debug helper to verify selection is working"""
+        selected = self._get_selected_song_ids()
+        if selected:
+            print(f"Selected song IDs: {selected}")
 
     def _on_heading_click(self, col_id: str):
         if col_id not in self.SORTABLE:
@@ -148,8 +161,10 @@ class SongsFrame(ttk.Frame):
         col = self.sort_col if self.sort_col in self.SORTABLE else "release_date"
         direction = "ASC" if self.sort_dir == "ASC" else "DESC"
 
-        if col in ("song_id", "group_id", "title"):
+        if col in ("group_id", "title"):
             primary = f"LOWER({col}) {direction}"
+        elif col == "song_id":
+            primary = f"{col} {direction}"  # song_id is case-sensitive
         else:
             primary = f"{col} {direction}"
 
@@ -189,14 +204,17 @@ class SongsFrame(ttk.Frame):
             # clear and insert
             self.tree.delete(*self.tree.get_children())
             for song_id, group_id, title, length_ms, release_date in rows:
+                # song_id should be a string matching [A-Za-z0-9]{1,20}
                 values = [
-                    "" if song_id is None else str(song_id),
+                    "" if song_id is None else song_id,  # Keep as string, don't convert
                     "" if group_id is None else str(group_id),
                     "" if title is None else str(title),
                     self._fmt_len(length_ms),
                     self._fmt_dt(release_date),
                 ]
-                self.tree.insert("", "end", values=values)
+                # Use song_id directly as the prefix already matches pattern
+                item_id = f"song_{song_id}" if song_id is not None else None
+                self.tree.insert("", "end", iid=item_id, values=values)
 
             page = (self.offset // self.limit) + 1
             pages = max(1, (total + self.limit - 1) // self.limit)
@@ -213,3 +231,124 @@ class SongsFrame(ttk.Frame):
         if self.offset >= self.limit:
             self.offset -= self.limit
             self.refresh()
+
+    def _get_selected_song_ids(self) -> List[str]:
+        """Get the song IDs of all selected rows. Returns text IDs matching [A-Za-z0-9]{1,20}."""
+        selections = self.tree.selection()
+        if not selections:
+            return []
+        
+        song_ids = []
+        for item_id in selections:
+            try:
+                if item_id.startswith("song_"):
+                    # Item ID format: "song_ABC123"
+                    song_ids.append(item_id[5:])
+                else:
+                    # Fallback to values if item_id format is different
+                    values = self.tree.item(item_id)["values"]
+                    if values and values[0]:  # song_id is first column
+                        song_ids.append(str(values[0]))
+            except (IndexError, TypeError):
+                continue
+        return song_ids
+
+    def _get_collection_choices(self) -> List[Tuple[str, str]]:
+        """Get list of (collection_id, name) for the current user's collections."""
+        sql = """
+            SELECT collection_id, collection_name 
+            FROM collection 
+            WHERE creator_username = %s 
+            ORDER BY collection_name
+        """
+        with self.app.cursor() as cur:
+            cur.execute(sql, (self.app.session.username,))
+            return cur.fetchall() or []
+
+    def add_selected_to_collection(self):
+        """Add selected songs to a user-chosen collection."""
+        if not self.app.session.username:
+            messagebox.showwarning("Not logged in", "Please log in first.")
+            return
+
+        song_ids = self._get_selected_song_ids()
+        if not song_ids:
+            messagebox.showinfo("Select songs", "Please select one or more songs first.")
+            return
+
+        # Get user's collections
+        collections = self._get_collection_choices()
+        if not collections:
+            messagebox.showinfo("No collections", "You don't have any collections. Create one first.")
+            return
+
+        # Create collection chooser dialog
+        dialog = tk.Toplevel(self)
+        dialog.title("Choose Collection")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        frame = ttk.Frame(dialog, padding="20 10")
+        frame.pack(fill="both", expand=True)
+        
+        ttk.Label(frame, text="Choose a collection:").pack(pady=(0, 10))
+        
+        # Collection listbox
+        listbox = tk.Listbox(frame, width=40, height=10)
+        listbox.pack(pady=(0, 10))
+        
+        # Populate listbox and keep track of collection IDs
+        collection_map = {}  # index -> (id, name)
+        for i, (cid, name) in enumerate(collections):
+            listbox.insert(tk.END, name)
+            collection_map[i] = (cid, name)
+        
+        def on_ok():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("Select collection", "Please select a collection.", parent=dialog)
+                return
+                
+            cid, cname = collection_map[selection[0]]
+            dialog.destroy()
+            
+            # Add songs to collection
+            try:
+                added = 0
+                with self.app.cursor() as cur:
+                    for song_id in song_ids:
+                        cur.execute(
+                            """
+                            INSERT INTO song_within_collection (collection_id, song_id)
+                            VALUES (%s, %s)
+                            ON CONFLICT (collection_id, song_id) DO NOTHING
+                            """,
+                            (cid, song_id),
+                        )
+                        added += cur.rowcount  # 1 if inserted, 0 if it already existed
+                self.app.conn.commit()
+                skipped = len(song_ids) - added
+                messagebox.showinfo(
+                    "Done",
+                    f"Added {added} song(s) to '{cname}'."
+                    + (f"  Skipped {skipped} duplicate(s)." if skipped else "")
+                )
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not add songs to collection:\n{e}")
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        # Buttons
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill="x", pady=(0, 10))
+        ttk.Button(btn_frame, text="OK", command=on_ok).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=on_cancel).pack(side="left")
+        
+        # Center the dialog on the parent window
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        dialog.wait_window()
