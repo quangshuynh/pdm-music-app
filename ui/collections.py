@@ -328,11 +328,19 @@ class CollectionsFrame(ttk.Frame):
         try:
             with self.app.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO song_within_collection (collection_id, song_id) VALUES (%s, %s)",
+                    """
+                    INSERT INTO song_within_collection (collection_id, song_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (collection_id, song_id) DO NOTHING
+                    """,
                     (cid, sid),
                 )
+            added = cur.rowcount
             self.app.conn.commit()
-            self.refresh()
+            if added:
+                self.refresh()
+            else:
+                messagebox.showinfo("No change", "That song is already in this collection.")
         except Exception as e:
             messagebox.showerror("Add Song Failed", f"Could not add song:\n{e}")
 
@@ -379,12 +387,24 @@ class CollectionsFrame(ttk.Frame):
             with self.app.cursor() as cur:
                 cur.execute("SELECT song_id FROM song WHERE album_id = %s", (aid,))
                 rows = cur.fetchall() or []
+                added = 0
                 for (sid,) in rows:
                     cur.execute(
-                        "INSERT INTO song_within_collection (collection_id, song_id) VALUES (%s, %s)",
+                        """
+                        INSERT INTO song_within_collection (collection_id, song_id)
+                        VALUES (%s, %s)
+                        ON CONFLICT (collection_id, song_id) DO NOTHING
+                        """,
                         (cid, sid),
                     )
+                    added += cur.rowcount
             self.app.conn.commit()
+            skipped = len(rows) - added
+            messagebox.showinfo(
+                "Add Album",
+                f"Added {added} song(s) from the album."
+                + (f"  Skipped {skipped} duplicate(s)." if skipped else "")
+            )
             self.refresh()
         except Exception as e:
             messagebox.showerror("Add Album Failed", f"Could not add album songs:\n{e}")

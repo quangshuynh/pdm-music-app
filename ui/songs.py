@@ -66,7 +66,7 @@ class SongsFrame(ttk.Frame):
         action_bar = ttk.Frame(self)
         action_bar.pack(fill="x", padx=10, pady=2)
         ttk.Button(action_bar, text="Add to Collection", command=self.add_selected_to_collection).pack(side="left")
-        ttk.Button(action_bar, text="Back to Dashboard", command=lambda: app.safe_show("Dashboard")).pack(side="right")
+        ttk.Button(action_bar, text="Back", command=lambda: app.safe_show("Dashboard")).pack(side="right")
 
         # --- Tree
         self.tree = ttk.Treeview(self, show="headings", height=16, selectmode="extended")
@@ -314,16 +314,24 @@ class SongsFrame(ttk.Frame):
             
             # Add songs to collection
             try:
+                added = 0
                 with self.app.cursor() as cur:
                     for song_id in song_ids:
                         cur.execute(
-                            "INSERT INTO song_within_collection (collection_id, song_id) VALUES (%s, %s)",
-                            (cid, song_id)
+                            """
+                            INSERT INTO song_within_collection (collection_id, song_id)
+                            VALUES (%s, %s)
+                            ON CONFLICT (collection_id, song_id) DO NOTHING
+                            """,
+                            (cid, song_id),
                         )
+                        added += cur.rowcount  # 1 if inserted, 0 if it already existed
                 self.app.conn.commit()
+                skipped = len(song_ids) - added
                 messagebox.showinfo(
-                    "Success", 
-                    f"Added {len(song_ids)} song(s) to collection '{cname}'."
+                    "Done",
+                    f"Added {added} song(s) to '{cname}'."
+                    + (f"  Skipped {skipped} duplicate(s)." if skipped else "")
                 )
             except Exception as e:
                 messagebox.showerror("Error", f"Could not add songs to collection:\n{e}")
