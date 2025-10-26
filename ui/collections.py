@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from typing import Optional, List, Tuple
+import secrets
+import string
 
 from app import App
 
@@ -62,7 +64,7 @@ class CollectionsFrame(ttk.Frame):
             anchor = "w" if col_id == "name" else "center"
             self.tree.column(col_id, width=width, anchor=anchor, stretch=False)
 
-    def _get_selected_collection(self) -> Optional[Tuple[int, str]]:
+    def _get_selected_collection(self) -> Optional[Tuple[str, str]]:
         sel = self.tree.selection()
         if not sel:
             return None
@@ -70,33 +72,30 @@ class CollectionsFrame(ttk.Frame):
         values = self.tree.item(item_id, "values")
         # We didn't store id as a column; keep it in tags
         tags = self.tree.item(item_id, "tags") or []
-        try:
-            cid = int(tags[0]) if tags else None
-        except Exception:
-            cid = None
+        cid = tags[0] if tags else None
         name = values[0] if values else None
         if cid is None or name is None:
             return None
         return cid, name
 
     # ----- DB helpers -----
-    def _list_collections(self) -> List[Tuple[int, str, int, float]]:
+    def _list_collections(self) -> List[Tuple[str, str, int, float]]:
         """
         Return list of (collection_id, name, song_count, total_minutes)
-        Sorted by name ASC.
+        collection_id is a text id like '#ABC123'. Sorted by name ASC.
         """
         username = self.app.session.username
         sql = """
             SELECT c.collection_id,
-                   c.name,
+                   c.collection_name,
                    COALESCE(COUNT(cs.song_id), 0) AS song_count,
                    COALESCE(SUM(s.length_ms) / 60000.0, 0) AS minutes
             FROM collection c
-            LEFT JOIN collection_song cs ON cs.collection_id = c.collection_id
+            LEFT JOIN song_within_collection cs ON cs.collection_id = c.collection_id
             LEFT JOIN song s ON s.song_id = cs.song_id
-            WHERE c.username = %s
-            GROUP BY c.collection_id, c.name
-            ORDER BY c.name ASC
+            WHERE c.creator_username = %s
+            GROUP BY c.collection_id, c.collection_name
+            ORDER BY c.collection_name ASC
         """
         with self.app.cursor() as cur:
             cur.execute(sql, (username,))
@@ -105,36 +104,53 @@ class CollectionsFrame(ttk.Frame):
         out = []
         for cid, name, cnt, mins in rows:
             try:
-                out.append((int(cid), str(name), int(cnt or 0), float(mins or 0)))
+                out.append((str(cid), str(name), int(cnt or 0), float(mins or 0)))
             except Exception:
                 continue
         return out
 
-    def _create_collection(self, name: str):
-        sql = """
-            INSERT INTO collection (username, name, created_at)
-            VALUES (%s, %s, NOW())
+    def _generate_collection_id(self) -> str:
+        """Generate a unique collection_id matching '^#[A-Za-z0-9]{1,19}$'.
+        This checks the DB for collisions and retries a few times.
         """
-        self.app.exec_and_commit(sql, (self.app.session.username, name))
+        alphabet = string.ascii_letters + string.digits
+        # try lengths from 8 up to 12 for reasonable uniqueness
+        for _ in range(20):
+            length = secrets.choice([8, 9, 10, 11, 12])
+            suffix = ''.join(secrets.choice(alphabet) for _ in range(length))
+            cid = f"#{suffix}"
+            with self.app.cursor() as cur:
+                cur.execute("SELECT 1 FROM collection WHERE collection_id = %s", (cid,))
+                if not cur.fetchone():
+                    return cid
+        raise RuntimeError("Failed to generate a unique collection_id")
 
-    def _rename_collection(self, collection_id: int, new_name: str):
-        sql = "UPDATE collection SET name = %s WHERE collection_id = %s"
+    def _create_collection(self, name: str):
+        cid = self._generate_collection_id()
+        sql = """
+            INSERT INTO collection (collection_id, creator_username, collection_name, creation_date)
+            VALUES (%s, %s, %s, NOW())
+        """
+        self.app.exec_and_commit(sql, (cid, self.app.session.username, name))
+
+    def _rename_collection(self, collection_id: str, new_name: str):
+        sql = "UPDATE collection SET collection_name = %s WHERE collection_id = %s"
         self.app.exec_and_commit(sql, (new_name, collection_id))
 
-    def _delete_collection(self, collection_id: int):
+    def _delete_collection(self, collection_id: str):
         # delete children then parent for FK safety
         with self.app.cursor() as cur:
-            cur.execute("DELETE FROM collection_song WHERE collection_id = %s", (collection_id,))
+            cur.execute("DELETE FROM song_within_collection WHERE collection_id = %s", (collection_id,))
             cur.execute("DELETE FROM collection WHERE collection_id = %s", (collection_id,))
         self.app.conn.commit()
 
-    def _play_collection(self, collection_id: int):
+    def _play_collection(self, collection_id: str):
         """Record a play event for each song in the collection for this user."""
         username = self.app.session.username
         # Fetch songs in the collection
         with self.app.cursor() as cur:
             cur.execute(
-                "SELECT cs.song_id FROM collection_song cs WHERE cs.collection_id = %s",
+                "SELECT cs.song_id FROM song_within_collection cs WHERE cs.collection_id = %s",
                 (collection_id,),
             )
             rows = cur.fetchall() or []
@@ -242,7 +258,7 @@ class CollectionsFrame(ttk.Frame):
         try:
             with self.app.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO collection_song (collection_id, song_id) VALUES (%s, %s)",
+                    "INSERT INTO song_within_collection (collection_id, song_id) VALUES (%s, %s)",
                     (cid, sid),
                 )
             self.app.conn.commit()
@@ -267,7 +283,7 @@ class CollectionsFrame(ttk.Frame):
         try:
             with self.app.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM collection_song WHERE collection_id = %s AND song_id = %s",
+                    "DELETE FROM song_within_collection WHERE collection_id = %s AND song_id = %s",
                     (cid, sid),
                 )
             self.app.conn.commit()
@@ -295,7 +311,7 @@ class CollectionsFrame(ttk.Frame):
                 rows = cur.fetchall() or []
                 for (sid,) in rows:
                     cur.execute(
-                        "INSERT INTO collection_song (collection_id, song_id) VALUES (%s, %s)",
+                        "INSERT INTO song_within_collection (collection_id, song_id) VALUES (%s, %s)",
                         (cid, sid),
                     )
             self.app.conn.commit()
@@ -321,10 +337,10 @@ class CollectionsFrame(ttk.Frame):
             with self.app.cursor() as cur:
                 cur.execute(
                     """
-                    DELETE FROM collection_song
+                    DELETE FROM song_within_collection
                     USING song
-                    WHERE collection_song.collection_id = %s
-                      AND collection_song.song_id = song.song_id
+                    WHERE song_within_collection.collection_id = %s
+                      AND song_within_collection.song_id = song.song_id
                       AND song.album_id = %s
                     """,
                     (cid, aid),
