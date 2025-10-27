@@ -6,17 +6,10 @@ from app import App
 
 class SongsFrame(ttk.Frame):
     """
-    Song search + results viewer.
-
-    Requirements implemented:
-      - Search by song, artist, album, or genre.
-      - Show columns: Song, Artist, Album, Length, Listen Count.
-      - Default sort: song ASC, artist ASC.
-      - Re-sort by: song, artist, genre, released year (ASC/DESC) without losing search.
+    Song search + results viewer with 'Listen' action per row.
     """
 
-    # Logical names we expose in the UI -> SQL expressions used in SELECT/ORDER/GROUP BY.
-    # Keep these centralized so ORDER BY stays in sync with SELECT aliases.
+    # SQL expressions used in SELECT/ORDER/GROUP BY.
     SQL_COLS = {
         "song": "s.title",
         "artist": "COALESCE(g.group_name, '')",
@@ -25,10 +18,10 @@ class SongsFrame(ttk.Frame):
         "release_date": "al.release_date",
         "release_year": "EXTRACT(YEAR FROM al.release_date)",
         "genre": "COALESCE(string_agg(DISTINCT sg.genre::text, ', '), '')",
-        "listen_count": "COALESCE(COUNT(li.song_id), 0)"
+        "listen_count": "COALESCE(COUNT(li.song_id), 0)",
     }
 
-    # Table names (quoted where needed)
+    # Table names
     TBL_SONG = "song s"
     TBL_GROUP = '"GROUP" g'
     TBL_SONG_ALBUM = "song_within_album swa"
@@ -37,7 +30,9 @@ class SongsFrame(ttk.Frame):
     TBL_LISTEN = "listen li"
 
     # UI columns: (tree_id, header, width)
+    # NOTE: _listen is a pseudo-column that renders a button-like cell.
     COLS = [
+        ("_listen", "Listen", 70),
         ("song", "Song", 260),
         ("artist", "Artist", 200),
         ("album", "Album", 220),
@@ -46,7 +41,6 @@ class SongsFrame(ttk.Frame):
         ("listen_count", "Listens", 90),
     ]
 
-    # Searchable fields and how they map to WHERE clauses
     SEARCH_FIELDS = {
         "song": "s.title",
         "artist": "g.group_name",
@@ -54,7 +48,6 @@ class SongsFrame(ttk.Frame):
         "genre": "sg.genre::text",
     }
 
-    # Sortable keys (what user can click) -> SQL expression
     SORTABLE = {
         "song": SQL_COLS["song"],
         "artist": SQL_COLS["artist"],
@@ -70,7 +63,7 @@ class SongsFrame(ttk.Frame):
         self.limit = 100
         self.offset = 0
 
-        # Default sort: song ASC then artist ASC
+        # Default sort
         self.sort_key = "song"
         self.sort_dir = "ASC"
 
@@ -111,14 +104,17 @@ class SongsFrame(ttk.Frame):
         # Action row
         actions = ttk.Frame(self)
         actions.pack(fill="x", padx=10, pady=2)
-        ttk.Button(actions, text="Add to Collection", command=self.add_selected_to_collection).pack(side="left")
+        ttk.Button(actions, text="Listen Selected", command=self.listen_selected).pack(side="left")
+        ttk.Button(actions, text="Add to Collection", command=self.add_selected_to_collection).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Back", command=lambda: app.safe_show("Dashboard")).pack(side="right")
 
         # ---------- Tree ----------
         self.tree = ttk.Treeview(self, show="headings", height=18, selectmode="extended")
         self.tree.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._setup_columns()
-        self.tree.bind("<<TreeviewSelect>>", lambda e: None)
+
+        # Clicking the first column ("Listen") acts as a button
+        self.tree.bind("<Button-1>", self._on_tree_click)
 
         self.refresh()
 
@@ -127,7 +123,7 @@ class SongsFrame(ttk.Frame):
         self.tree["columns"] = [c[0] for c in self.COLS]
         for col_id, header, width in self.COLS:
             self.tree.heading(col_id, text=header, command=lambda c=col_id: self._on_heading_click(c))
-            anchor = "e" if col_id in ("length", "listen_count") else "w"
+            anchor = "center" if col_id == "_listen" else ("e" if col_id in ("length", "listen_count") else "w")
             self.tree.column(col_id, width=width, anchor=anchor)
         self._render_heading_arrows()
 
@@ -141,15 +137,10 @@ class SongsFrame(ttk.Frame):
                 self.tree.heading(col_id, text=header)
 
     def _on_heading_click(self, col_id: str):
-        # Map visible headers to sort keys (release year is not a visible column; sort by it if user clicks Album header with Ctrl?—not needed)
+        if col_id == "_listen":
+            return  # not sortable
         key = col_id
         if key not in self.SORTABLE:
-            # Allow sorting by release year via album header + Shift-click would be nice,
-            # but per requirements, user can choose year; expose it via context menu if needed.
-            if col_id == "album":
-                # Toggle year sort when clicking Album while holding Control (optional UX)
-                # Fallback: ignore if not intended.
-                return
             return
 
         if self.sort_key == key:
@@ -160,6 +151,20 @@ class SongsFrame(ttk.Frame):
 
         self.offset = 0
         self.refresh()
+
+    def _on_tree_click(self, event):
+        # If they clicked the "Listen" column for a row, record a listen
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        col = self.tree.identify_column(event.x)  # e.g., "#1"
+        if col != "#1":
+            return  # first displayed column is our _listen pseudo-button
+        iid = self.tree.identify_row(event.y)
+        if not iid or not iid.startswith("song_"):
+            return
+        song_id = iid[5:]
+        self._record_listen(song_id)
 
     # ================= Formatting helpers =================
     @staticmethod
@@ -183,7 +188,6 @@ class SongsFrame(ttk.Frame):
 
     # ================= SQL build =================
     def _build_base_from(self) -> str:
-        # LEFT JOIN chain to keep songs even when some relationships are missing
         return f"""
         FROM {self.TBL_SONG}
         LEFT JOIN {self.TBL_GROUP}      ON g.group_id = s.group_id
@@ -200,7 +204,6 @@ class SongsFrame(ttk.Frame):
 
         field_key = self.field_var.get()
         field_expr = self.SEARCH_FIELDS.get(field_key, "s.title")
-        # Use ILIKE for case-insensitive contains search
         return f"WHERE {field_expr} ILIKE %s", [f"%{term}%"]
 
     def _order_sql(self) -> str:
@@ -214,8 +217,6 @@ class SongsFrame(ttk.Frame):
 
         secondary = "LOWER(song) ASC, LOWER(artist) ASC"
         return f"ORDER BY {primary}, {secondary}"
-
-
 
     # ================= Queries =================
     def _count_matches(self) -> int:
@@ -238,21 +239,14 @@ class SongsFrame(ttk.Frame):
                     s.title AS song,
                     COALESCE(g.group_name, '') AS artist,
 
-                    -- If a song is on multiple albums, show them comma-separated
                     COALESCE(string_agg(DISTINCT al.album_name, ', '), '') AS album,
-
                     s.length_ms,
 
                     -- Count listens without being multiplied by album/genre joins
-                    COALESCE(
-                    COUNT(DISTINCT (li.listener_username, li.date_of_view)),
-                    0
-                    ) AS listen_count,
+                    COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0) AS listen_count,
 
-                    -- Aggregate genres
                     COALESCE(string_agg(DISTINCT sg.genre, ', '), '') AS genre,
 
-                    -- Use earliest release date across albums for this song
                     COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
                     EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year
                 {self._build_base_from()}
@@ -267,8 +261,6 @@ class SongsFrame(ttk.Frame):
             cur.execute(sql, (*params, self.limit, self.offset))
             return cur.fetchall()
 
-
-
     # ================= Data load =================
     def refresh(self):
         try:
@@ -277,7 +269,6 @@ class SongsFrame(ttk.Frame):
 
             self.tree.delete(*self.tree.get_children())
 
-            seen = set()
             for (
                 song_id,
                 song,
@@ -285,15 +276,12 @@ class SongsFrame(ttk.Frame):
                 album,
                 length_ms,
                 listen_count,
-                _genre,         # not displayed
-                _release_date,  # not displayed
-                release_year,  # used only for sorting in SQL
+                _genre,
+                _release_date,
+                release_year,
             ) in rows:
-                if song_id in seen:
-                    continue
-                seen.add(song_id)
-
                 values = [
+                    "▶ Play",                             # _listen pseudo-button
                     song or "",
                     artist or "",
                     album or "",
@@ -310,7 +298,6 @@ class SongsFrame(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Songs Error", f"Could not load songs:\n{e}")
 
-
     def next_page(self):
         self.offset += self.limit
         self.refresh()
@@ -319,6 +306,38 @@ class SongsFrame(ttk.Frame):
         if self.offset >= self.limit:
             self.offset -= self.limit
             self.refresh()
+
+    # ================= Listen actions =================
+    def _record_listen(self, song_id: str):
+        if not self.app.session.username:
+            messagebox.showwarning("Not logged in", "Please log in first.")
+            return
+        try:
+            with self.app.cursor() as cur:
+                # If date_of_view has a DEFAULT now() you can omit it; included here for clarity.
+                cur.execute(
+                    """
+                    INSERT INTO listen (song_id, listener_username, date_of_view)
+                    VALUES (%s, %s, NOW())
+                    """,
+                    (song_id, self.app.session.username),
+                )
+            self.app.conn.commit()
+            # Refresh to update listen_count (and preserve filters/sort)
+            self.refresh()
+        except Exception as e:
+            messagebox.showerror("Listen Error", f"Could not record listen:\n{e}")
+
+    def listen_selected(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a song", "Please select a song first.")
+            return
+        iid = sel[0]
+        if not iid.startswith("song_"):
+            return
+        song_id = iid[5:]
+        self._record_listen(song_id)
 
     # ================= Collections =================
     def _get_selected_song_ids(self) -> List[str]:
@@ -354,7 +373,6 @@ class SongsFrame(ttk.Frame):
             messagebox.showinfo("No collections", "You don't have any collections. Create one first.")
             return
 
-        # --- chooser dialog ---
         dialog = tk.Toplevel(self)
         dialog.title("Choose Collection")
         dialog.transient(self)
