@@ -186,7 +186,7 @@ class CollectionsFrame(ttk.Frame):
         with self.app.cursor() as cur:
             for sid in song_ids:
                 cur.execute(
-                    "INSERT INTO listen (listener_username, song_id, played_at) VALUES (%s, %s, NOW())",
+                    "INSERT INTO listen (listener_username, song_id, date_of_view) VALUES (%s, %s, NOW())",
                     (username, sid),
                 )
         self.app.conn.commit()
