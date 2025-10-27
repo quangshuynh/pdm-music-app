@@ -105,7 +105,6 @@ class SongsFrame(ttk.Frame):
         # Action row
         actions = ttk.Frame(self)
         actions.pack(fill="x", padx=10, pady=2)
-        ttk.Button(actions, text="Listen Selected", command=self.listen_selected).pack(side="left")
         ttk.Button(actions, text="Add to Collection", command=self.add_selected_to_collection).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Back", command=lambda: app.safe_show("Dashboard")).pack(side="right")
 
