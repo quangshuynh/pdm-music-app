@@ -18,13 +18,20 @@ class LoginFrame(ttk.Frame):
         # Layout
         ttk.Label(self, text="Toe Jam", font=("Arial", 18, "bold")).pack(pady=20)
         ttk.Label(self, text="Username:").pack()
-        ttk.Entry(self, textvariable=self.username_var).pack(pady=5)
+        user_entry = ttk.Entry(self, textvariable=self.username_var)
+        user_entry.bind('<Return>', self.login_user_entry)
+        user_entry.pack(pady=5)
 
         ttk.Label(self, text="Password:").pack()
-        ttk.Entry(self, textvariable=self.password_var, show="*").pack(pady=5)
+        password_entry = ttk.Entry(self, textvariable=self.password_var, show="*")
+        password_entry.bind('<Return>', self.login_user_entry)
+        password_entry.pack(pady=5)
 
         ttk.Button(self, text="Login", command=self.login_user).pack(pady=10)
         ttk.Button(self, text="Sign Up", command=self.go_to_signup).pack()
+
+    def login_user_entry(self, event):
+        self.login_user()
 
     #  Login logic 
     def login_user(self):
