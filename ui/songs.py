@@ -7,6 +7,7 @@ from app import App
 class SongsFrame(ttk.Frame):
     """
     Song search + results viewer with 'Listen' action per row.
+    - Click 'Listen' inserts one row into listen and updates only that row's count.
     """
 
     # SQL expressions used in SELECT/ORDER/GROUP BY.
@@ -18,7 +19,8 @@ class SongsFrame(ttk.Frame):
         "release_date": "al.release_date",
         "release_year": "EXTRACT(YEAR FROM al.release_date)",
         "genre": "COALESCE(string_agg(DISTINCT sg.genre::text, ', '), '')",
-        "listen_count": "COALESCE(COUNT(li.song_id), 0)",
+        # Keep counting from the listen table (no s.listen_count column needed)
+        "listen_count": "COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0)",
     }
 
     # Table names
@@ -30,7 +32,6 @@ class SongsFrame(ttk.Frame):
     TBL_LISTEN = "listen li"
 
     # UI columns: (tree_id, header, width)
-    # NOTE: _listen is a pseudo-column that renders a button-like cell.
     COLS = [
         ("_listen", "Listen", 70),
         ("song", "Song", 260),
@@ -153,18 +154,18 @@ class SongsFrame(ttk.Frame):
         self.refresh()
 
     def _on_tree_click(self, event):
-        # If they clicked the "Listen" column for a row, record a listen
+        # If they clicked the "Listen" column for a row, record one listen and update just that cell
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
             return
-        col = self.tree.identify_column(event.x)  # e.g., "#1"
+        col = self.tree.identify_column(event.x)  # "#1" is the first displayed column
         if col != "#1":
-            return  # first displayed column is our _listen pseudo-button
+            return
         iid = self.tree.identify_row(event.y)
         if not iid or not iid.startswith("song_"):
             return
         song_id = iid[5:]
-        self._record_listen(song_id)
+        self._record_listen_and_patch(song_id, iid)
 
     # ================= Formatting helpers =================
     @staticmethod
@@ -188,6 +189,7 @@ class SongsFrame(ttk.Frame):
 
     # ================= SQL build =================
     def _build_base_from(self) -> str:
+        # Keep the listen join for page loads where we show counts
         return f"""
         FROM {self.TBL_SONG}
         LEFT JOIN {self.TBL_GROUP}      ON g.group_id = s.group_id
@@ -201,7 +203,6 @@ class SongsFrame(ttk.Frame):
         term = self.search_var.get().strip()
         if not term:
             return "", []
-
         field_key = self.field_var.get()
         field_expr = self.SEARCH_FIELDS.get(field_key, "s.title")
         return f"WHERE {field_expr} ILIKE %s", [f"%{term}%"]
@@ -209,12 +210,10 @@ class SongsFrame(ttk.Frame):
     def _order_sql(self) -> str:
         key = self.sort_key if self.sort_key in ("song", "artist", "genre", "release_year") else "song"
         direction = "ASC" if self.sort_dir == "ASC" else "DESC"
-
         if key in ("song", "artist", "genre"):
             primary = f"LOWER({key}) {direction}"
         else:
             primary = f"{key} {direction}"
-
         secondary = "LOWER(song) ASC, LOWER(artist) ASC"
         return f"ORDER BY {primary}, {secondary}"
 
@@ -238,21 +237,15 @@ class SongsFrame(ttk.Frame):
                     s.song_id,
                     s.title AS song,
                     COALESCE(g.group_name, '') AS artist,
-
                     COALESCE(string_agg(DISTINCT al.album_name, ', '), '') AS album,
                     s.length_ms,
-
-                    -- Count listens without being multiplied by album/genre joins
-                    COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0) AS listen_count,
-
+                    {self.SQL_COLS["listen_count"]} AS listen_count,
                     COALESCE(string_agg(DISTINCT sg.genre, ', '), '') AS genre,
-
                     COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
                     EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year
                 {self._build_base_from()}
                 {where_sql}
-                GROUP BY
-                    s.song_id, s.title, s.length_ms, g.group_name
+                GROUP BY s.song_id, s.title, s.length_ms, g.group_name
             ) AS sub
             {order_sql}
             LIMIT %s OFFSET %s
@@ -307,26 +300,42 @@ class SongsFrame(ttk.Frame):
             self.offset -= self.limit
             self.refresh()
 
-    # ================= Listen actions =================
-    def _record_listen(self, song_id: str):
+    # ================= Listen: INSERT + local cell patch =================
+    def _col_index(self, col_id: str) -> int:
+        return [c[0] for c in self.COLS].index(col_id)
+
+    def _record_listen_and_patch(self, song_id: str, iid: str):
+        """Insert a single listen, then query the new total for this song and patch only this row."""
         if not self.app.session.username:
             messagebox.showwarning("Not logged in", "Please log in first.")
             return
         try:
             with self.app.cursor() as cur:
-                # If date_of_view has a DEFAULT now() you can omit it; included here for clarity.
+                # 1) insert one listen row
                 cur.execute(
-                    """
-                    INSERT INTO listen (song_id, listener_username, date_of_view)
-                    VALUES (%s, %s, NOW())
-                    """,
+                    "INSERT INTO listen (song_id, listener_username, date_of_view) VALUES (%s, %s, NOW())",
                     (song_id, self.app.session.username),
                 )
+                # 2) get the updated count just for this song
+                cur.execute(
+                    "SELECT COALESCE(COUNT(DISTINCT (listener_username, date_of_view)), 0) "
+                    "FROM listen WHERE song_id = %s",
+                    (song_id,),
+                )
+                (new_count,) = cur.fetchone()
             self.app.conn.commit()
-            # Refresh to update listen_count (and preserve filters/sort)
-            self.refresh()
         except Exception as e:
             messagebox.showerror("Listen Error", f"Could not record listen:\n{e}")
+            return
+
+        # 3) patch the single cell in the UI
+        try:
+            vals = list(self.tree.item(iid, "values"))
+            vals[self._col_index("listen_count")] = int(new_count)
+            self.tree.item(iid, values=vals)
+        except Exception:
+            # fallback: do NOT full refresh; just ignore UI patch error
+            pass
 
     def listen_selected(self):
         sel = self.tree.selection()
@@ -336,10 +345,9 @@ class SongsFrame(ttk.Frame):
         iid = sel[0]
         if not iid.startswith("song_"):
             return
-        song_id = iid[5:]
-        self._record_listen(song_id)
+        self._record_listen_and_patch(iid[5:], iid)
 
-    # ================= Collections =================
+    # ================= Collections (unchanged) =================
     def _get_selected_song_ids(self) -> List[str]:
         ids: List[str] = []
         for iid in self.tree.selection():
