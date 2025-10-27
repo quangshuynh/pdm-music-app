@@ -354,9 +354,9 @@ class CollectionsFrame(ttk.Frame):
         if not sid_str:
             return
         try:
-            sid = int(sid_str)
+            sid = sid_str
         except Exception:
-            messagebox.showwarning("Invalid", "Song ID must be a number.")
+            messagebox.showwarning("Invalid", "Song ID must be 1–20 letters/numbers only (A–Z, a–z, 0–9)")
             return
         try:
             with self.app.cursor() as cur:
@@ -379,9 +379,9 @@ class CollectionsFrame(ttk.Frame):
         if not aid_str:
             return
         try:
-            aid = int(aid_str)
+            aid = aid_str
         except Exception:
-            messagebox.showwarning("Invalid", "Album ID must be a number.")
+            messagebox.showwarning("Invalid", "Album ID be 1–20 letters/numbers only (A–Z, a–z, 0–9)")
             return
         try:
             with self.app.cursor() as cur:
@@ -419,9 +419,9 @@ class CollectionsFrame(ttk.Frame):
         if not aid_str:
             return
         try:
-            aid = int(aid_str)
+            aid = aid_str
         except Exception:
-            messagebox.showwarning("Invalid", "Album ID must be a number.")
+            messagebox.showwarning("Invalid", "Album ID be 1–20 letters/numbers only (A–Z, a–z, 0–9)")
             return
         try:
             with self.app.cursor() as cur:
