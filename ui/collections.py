@@ -375,18 +375,32 @@ class CollectionsFrame(ttk.Frame):
             messagebox.showinfo("Select a collection", "Please select a collection first.")
             return
         cid, _ = sel
-        aid_str = simpledialog.askstring("Add Album", "Enter album_id to add:", parent=self)
-        if not aid_str:
+
+        aid = simpledialog.askstring("Add Album", "Enter album_id to add:", parent=self)
+        if not aid:
             return
-        try:
-            aid = aid_str
-        except Exception:
-            messagebox.showwarning("Invalid", "Album ID be 1–20 letters/numbers only (A–Z, a–z, 0–9)")
-            return
+
         try:
             with self.app.cursor() as cur:
-                cur.execute("SELECT song_id FROM song WHERE album_id = %s", (aid,))
+                # (Optional) make sure album exists
+                cur.execute("SELECT 1 FROM album WHERE album_id = %s", (aid,))
+                if not cur.fetchone():
+                    messagebox.showwarning("Not found", f"Album '{aid}' does not exist.")
+                    return
+
+                # Pull songs from song_within_album, not song
+                cur.execute(
+                    """
+                    SELECT swa.song_id
+                    FROM song_within_album AS swa
+                    WHERE swa.album_id = %s
+                    ORDER BY swa.track_number NULLS LAST, swa.song_id
+                    """,
+                    (aid,),
+                )
                 rows = cur.fetchall() or []
+
+
                 added = 0
                 for (sid,) in rows:
                     cur.execute(
@@ -397,17 +411,25 @@ class CollectionsFrame(ttk.Frame):
                         """,
                         (cid, sid),
                     )
-                    added += cur.rowcount
+                    # rowcount is 1 when inserted, 0 when skipped due to conflict
+                    added += (cur.rowcount or 0)
+
             self.app.conn.commit()
-            skipped = len(rows) - added
-            messagebox.showinfo(
-                "Add Album",
-                f"Added {added} song(s) from the album."
-                + (f"  Skipped {skipped} duplicate(s)." if skipped else "")
-            )
+
+            if not rows:
+                messagebox.showinfo("Add Album", "That album has no tracks.")
+            else:
+                skipped = len(rows) - added
+                msg = f"Added {added} song(s) from the album."
+                if skipped:
+                    msg += f"  Skipped {skipped} duplicate(s)."
+                messagebox.showinfo("Add Album", msg)
+
             self.refresh()
+
         except Exception as e:
             messagebox.showerror("Add Album Failed", f"Could not add album songs:\n{e}")
+
 
     def on_remove_album(self):
         sel = self._get_selected_collection()
@@ -415,27 +437,31 @@ class CollectionsFrame(ttk.Frame):
             messagebox.showinfo("Select a collection", "Please select a collection first.")
             return
         cid, _ = sel
-        aid_str = simpledialog.askstring("Remove Album", "Enter album_id to remove:", parent=self)
-        if not aid_str:
+
+        aid = simpledialog.askstring("Remove Album", "Enter album_id to remove:", parent=self)
+        if not aid:
             return
-        try:
-            aid = aid_str
-        except Exception:
-            messagebox.showwarning("Invalid", "Album ID be 1–20 letters/numbers only (A–Z, a–z, 0–9)")
-            return
+
         try:
             with self.app.cursor() as cur:
+                # Remove songs in this collection whose IDs are on that album
                 cur.execute(
                     """
-                    DELETE FROM song_within_collection
-                    USING song
-                    WHERE song_within_collection.collection_id = %s
-                      AND song_within_collection.song_id = song.song_id
-                      AND song.album_id = %s
+                    DELETE FROM song_within_collection swc
+                    WHERE swc.collection_id = %s
+                    AND swc.song_id IN (
+                        SELECT swa.song_id
+                        FROM song_within_album AS swa
+                        WHERE swa.album_id = %s
+                    )
                     """,
                     (cid, aid),
                 )
+                removed = cur.rowcount or 0
+
             self.app.conn.commit()
+            messagebox.showinfo("Remove Album", f"Removed {removed} song(s) from the collection.")
             self.refresh()
+
         except Exception as e:
             messagebox.showerror("Remove Album Failed", f"Could not remove album songs:\n{e}")
