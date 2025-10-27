@@ -8,6 +8,7 @@ class SongsFrame(ttk.Frame):
     """
     Song search + results viewer with 'Listen' action per row.
     - Click 'Listen' inserts one row into listen and updates only that row's count.
+    - Shows a simple popup after Play.
     """
 
     # SQL expressions used in SELECT/ORDER/GROUP BY.
@@ -41,6 +42,10 @@ class SongsFrame(ttk.Frame):
         ("release_year", "Year", 80),
         ("listen_count", "Listens", 90),
     ]
+
+    # visible value index helpers (avoid dynamic lookups)
+    IDX_SONG = 1
+    IDX_LISTENS = 6
 
     SEARCH_FIELDS = {
         "song": "s.title",
@@ -299,15 +304,20 @@ class SongsFrame(ttk.Frame):
             self.offset -= self.limit
             self.refresh()
 
-    # ================= Listen: INSERT + local cell patch =================
-    def _col_index(self, col_id: str) -> int:
-        return [c[0] for c in self.COLS].index(col_id)
-
+    # ================= Listen: INSERT + local cell patch + popup =================
     def _record_listen_and_patch(self, song_id: str, iid: str):
-        """Insert a single listen, then query the new total for this song and patch only this row."""
+        """Insert a single listen, then query the new total for this song and patch only this row. Also show a popup."""
         if not self.app.session.username:
             messagebox.showwarning("Not logged in", "Please log in first.")
             return
+
+        # grab title for popup before DB work
+        try:
+            vals_for_title = list(self.tree.item(iid, "values"))
+            song_title = vals_for_title[self.IDX_SONG] or "Song"
+        except Exception:
+            song_title = "Song"
+
         try:
             with self.app.cursor() as cur:
                 # 1) insert one listen row
@@ -327,24 +337,16 @@ class SongsFrame(ttk.Frame):
             messagebox.showerror("Listen Error", f"Could not record listen:\n{e}")
             return
 
-        # 3) patch the single cell in the UI
+        # 3) patch the single cell in the UI (no full refresh)
         try:
             vals = list(self.tree.item(iid, "values"))
-            vals[self._col_index("listen_count")] = int(new_count)
+            vals[self.IDX_LISTENS] = int(new_count)
             self.tree.item(iid, values=vals)
         except Exception:
-            # fallback: do NOT full refresh; just ignore UI patch error
             pass
 
-    def listen_selected(self):
-        sel = self.tree.selection()
-        if not sel:
-            messagebox.showinfo("Select a song", "Please select a song first.")
-            return
-        iid = sel[0]
-        if not iid.startswith("song_"):
-            return
-        self._record_listen_and_patch(iid[5:], iid)
+        # 4) popup feedback (simple blocking dialog)
+        messagebox.showinfo("Playing", f"▶ {song_title}")
 
     # ================= Collections (unchanged) =================
     def _get_selected_song_ids(self) -> List[str]:
