@@ -39,7 +39,7 @@ class CollectionsFrame(ttk.Frame):
         ttk.Button(bar, text="Refresh", command=self.refresh).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Back", command=lambda: app.safe_show("Dashboard")).pack(side="right")
 
-        # List
+        # Collections list
         self.tree = ttk.Treeview(self, show="headings", selectmode="browse", height=16)
         self.tree.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._setup_columns()
@@ -47,24 +47,40 @@ class CollectionsFrame(ttk.Frame):
         # Songs in collection view
         songs_frame = ttk.LabelFrame(self, text="Songs in Collection")
         songs_frame.pack(fill="both", expand=True, padx=10, pady=(0, 6))
-        
-        # Songs list
-        self.songs_tree = ttk.Treeview(songs_frame, show="headings", height=8)
-        self.songs_tree.pack(fill="both", expand=True, pady=5)
-        
-        # Song columns
+
+        # Song columns (added a clickable _listen column)
         self.SONG_COLS = [
-            ("song_id", "Song ID", 100),
+            ("_listen", "Listen", 70),       # clickable cell -> Play
+            ("song_id", "Song ID", 120),
             ("title", "Title", 300),
             ("length", "Length", 80),
-            ("group_id", "Group ID", 100),
+            ("group_id", "Group ID", 120),
         ]
-        
+
+        # Songs tree
+        self.songs_tree = ttk.Treeview(songs_frame, show="headings", height=8, selectmode="extended")
+        self.songs_tree.pack(fill="both", expand=True, pady=(5, 0))
         self.songs_tree["columns"] = [c[0] for c in self.SONG_COLS]
         for col_id, header, width in self.SONG_COLS:
+            # headers: only _listen has no sort/arrow, just text
             self.songs_tree.heading(col_id, text=header)
-            anchor = "w" if col_id in ("title", "song_id") else "center"
+            if col_id == "_listen":
+                anchor = "center"
+            elif col_id in ("length",):
+                anchor = "e"
+            elif col_id in ("song_id", "group_id"):
+                anchor = "center"
+            else:
+                anchor = "w"
             self.songs_tree.column(col_id, width=width, anchor=anchor, stretch=False)
+
+        # Click binding: detect clicks on the first column of songs_tree
+        self.songs_tree.bind("<Button-1>", self._on_song_tree_click)
+
+        # Songs actions bar
+        songs_bar = ttk.Frame(songs_frame)
+        songs_bar.pack(fill="x", padx=0, pady=(6, 8))
+        ttk.Button(songs_bar, text="Play Selected", command=self.on_play_selected_songs).pack(side="left")
 
         # Status
         self.status = ttk.Label(self, text="")
@@ -125,7 +141,6 @@ class CollectionsFrame(ttk.Frame):
         with self.app.cursor() as cur:
             cur.execute(sql, (username,))
             rows = cur.fetchall() or []
-        # ensure proper types
         out = []
         for cid, name, cnt, mins in rows:
             try:
@@ -135,11 +150,8 @@ class CollectionsFrame(ttk.Frame):
         return out
 
     def _generate_collection_id(self) -> str:
-        """Generate a unique collection_id matching '^#[A-Za-z0-9]{1,19}$'.
-        This checks the DB for collisions and retries a few times.
-        """
+        """Generate a unique collection_id matching '^#[A-Za-z0-9]{1,19}$'."""
         alphabet = string.ascii_letters + string.digits
-        # try lengths from 8 up to 12 for reasonable uniqueness
         for _ in range(20):
             length = secrets.choice([8, 9, 10, 11, 12])
             suffix = ''.join(secrets.choice(alphabet) for _ in range(length))
@@ -170,9 +182,8 @@ class CollectionsFrame(ttk.Frame):
         self.app.conn.commit()
 
     def _play_collection(self, collection_id: str):
-        """Record a play event for each song in the collection for this user."""
+        """Record a play event for each song in the collection for this user (uses date_of_view for consistency)."""
         username = self.app.session.username
-        # Fetch songs in the collection
         with self.app.cursor() as cur:
             cur.execute(
                 "SELECT cs.song_id FROM song_within_collection cs WHERE cs.collection_id = %s",
@@ -182,12 +193,11 @@ class CollectionsFrame(ttk.Frame):
         song_ids = [r[0] for r in rows]
         if not song_ids:
             return 0
-        # Record plays; adjust table/columns to your schema if different
         with self.app.cursor() as cur:
             for sid in song_ids:
                 cur.execute(
-                    "INSERT INTO listen (listener_username, song_id, date_of_view) VALUES (%s, %s, NOW())",
-                    (username, sid),
+                    "INSERT INTO listen (song_id, listener_username, date_of_view) VALUES (%s, %s, NOW())",
+                    (sid, username),
                 )
         self.app.conn.commit()
         return len(song_ids)
@@ -202,12 +212,10 @@ class CollectionsFrame(ttk.Frame):
             for cid, name, cnt, mins in rows:
                 total_songs += cnt
                 total_minutes += mins
-                # store id in tags[0]
                 self.tree.insert("", "end", values=(name, cnt, f"{mins:.2f}"), tags=(str(cid),))
             self.status.config(
                 text=f"{len(rows)} collections - {total_songs} songs - {total_minutes:.2f} minutes"
             )
-            
             # Clear songs view when refreshing collections
             self.songs_tree.delete(*self.songs_tree.get_children())
         except Exception as e:
@@ -229,12 +237,10 @@ class CollectionsFrame(ttk.Frame):
     def _on_collection_select(self, event=None):
         """When a collection is selected, show its songs."""
         self.songs_tree.delete(*self.songs_tree.get_children())
-        
         sel = self._get_selected_collection()
         if not sel:
             return
-            
-        cid, name = sel
+        cid, _name = sel
         try:
             songs = self._list_collection_songs(cid)
             for song_id, title, length_ms, group_id in songs:
@@ -244,18 +250,84 @@ class CollectionsFrame(ttk.Frame):
                     total_sec = int(length_ms) // 1000
                     mins, secs = divmod(total_sec, 60)
                     length = f"{mins:02d}:{secs:02d}"
-                
                 values = [
+                    "▶ Play",                # _listen pseudo-button
                     song_id or "",
                     title or "",
                     length,
                     group_id or "",
                 ]
-                self.songs_tree.insert("", "end", values=values)
+                # store song_id in iid for easy retrieval
+                self.songs_tree.insert("", "end", iid=f"csong_{song_id}", values=values)
         except Exception as e:
             messagebox.showerror("Error", f"Could not load songs for collection:\n{e}")
 
-        
+    # ----- per-song play support -----
+    def _record_listen(self, song_id: str, song_title_for_popup: str = "Song"):
+        """Insert a single listen row; consistent with SongsFrame schema (date_of_view)."""
+        if not self.app.session.username:
+            messagebox.showwarning("Not logged in", "Please log in first.")
+            return False
+        try:
+            with self.app.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO listen (song_id, listener_username, date_of_view) VALUES (%s, %s, NOW())",
+                    (song_id, self.app.session.username),
+                )
+            self.app.conn.commit()
+        except Exception as e:
+            messagebox.showerror("Listen Error", f"Could not record listen:\n{e}")
+            return False
+        messagebox.showinfo("Playing", f"▶ {song_title_for_popup}")
+        return True
+
+    def _on_song_tree_click(self, event):
+        """Detect click on 'Listen' column of a song row and play that one song."""
+        region = self.songs_tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        col = self.songs_tree.identify_column(event.x)  # "#1" is first displayed column
+        if col != "#1":  # only first column ('_listen') acts like a button
+            return
+        iid = self.songs_tree.identify_row(event.y)
+        if not iid or not iid.startswith("csong_"):
+            return
+        # Extract values for popup label
+        vals = list(self.songs_tree.item(iid, "values") or [])
+        song_title = vals[2] if len(vals) > 2 else "Song"
+        song_id = (vals[1] if len(vals) > 1 else "") or iid.replace("csong_", "", 1)
+        if song_id:
+            self._record_listen(song_id, song_title_for_popup=song_title)
+
+    def on_play_selected_songs(self):
+        """Play all currently selected rows in the songs list."""
+        if not self.app.session.username:
+            messagebox.showwarning("Not logged in", "Please log in first.")
+            return
+        iids = self.songs_tree.selection()
+        if not iids:
+            messagebox.showinfo("Select songs", "Please select one or more songs first.")
+            return
+        played = 0
+        try:
+            with self.app.cursor() as cur:
+                for iid in iids:
+                    vals = list(self.songs_tree.item(iid, "values") or [])
+                    if len(vals) < 2:
+                        continue
+                    song_id = vals[1]
+                    cur.execute(
+                        "INSERT INTO listen (song_id, listener_username, date_of_view) VALUES (%s, %s, NOW())",
+                        (song_id, self.app.session.username),
+                    )
+                    played += 1
+            self.app.conn.commit()
+        except Exception as e:
+            messagebox.showerror("Play Failed", f"Could not record plays:\n{e}")
+            return
+        messagebox.showinfo("Played", f"Recorded {played} play(s).")
+
+    # ----- collection CRUD -----
     def on_new(self):
         name = simpledialog.askstring("New Collection", "Enter collection name:", parent=self)
         if not name:
@@ -335,10 +407,10 @@ class CollectionsFrame(ttk.Frame):
                     """,
                     (cid, sid),
                 )
-            added = cur.rowcount
+                added = cur.rowcount
             self.app.conn.commit()
             if added:
-                self.refresh()
+                self._on_collection_select()  # refresh songs list for selected collection
             else:
                 messagebox.showinfo("No change", "That song is already in this collection.")
         except Exception as e:
@@ -365,7 +437,7 @@ class CollectionsFrame(ttk.Frame):
                     (cid, sid),
                 )
             self.app.conn.commit()
-            self.refresh()
+            self._on_collection_select()  # refresh songs list
         except Exception as e:
             messagebox.showerror("Remove Song Failed", f"Could not remove song:\n{e}")
 
@@ -388,7 +460,7 @@ class CollectionsFrame(ttk.Frame):
                     messagebox.showwarning("Not found", f"Album '{aid}' does not exist.")
                     return
 
-                # Pull songs from song_within_album, not song
+                # Pull songs from song_within_album
                 cur.execute(
                     """
                     SELECT swa.song_id
@@ -400,7 +472,6 @@ class CollectionsFrame(ttk.Frame):
                 )
                 rows = cur.fetchall() or []
 
-
                 added = 0
                 for (sid,) in rows:
                     cur.execute(
@@ -411,7 +482,6 @@ class CollectionsFrame(ttk.Frame):
                         """,
                         (cid, sid),
                     )
-                    # rowcount is 1 when inserted, 0 when skipped due to conflict
                     added += (cur.rowcount or 0)
 
             self.app.conn.commit()
@@ -425,11 +495,10 @@ class CollectionsFrame(ttk.Frame):
                     msg += f"  Skipped {skipped} duplicate(s)."
                 messagebox.showinfo("Add Album", msg)
 
-            self.refresh()
+            self._on_collection_select()
 
         except Exception as e:
             messagebox.showerror("Add Album Failed", f"Could not add album songs:\n{e}")
-
 
     def on_remove_album(self):
         sel = self._get_selected_collection()
@@ -444,7 +513,6 @@ class CollectionsFrame(ttk.Frame):
 
         try:
             with self.app.cursor() as cur:
-                # Remove songs in this collection whose IDs are on that album
                 cur.execute(
                     """
                     DELETE FROM song_within_collection swc
@@ -461,7 +529,7 @@ class CollectionsFrame(ttk.Frame):
 
             self.app.conn.commit()
             messagebox.showinfo("Remove Album", f"Removed {removed} song(s) from the collection.")
-            self.refresh()
+            self._on_collection_select()
 
         except Exception as e:
             messagebox.showerror("Remove Album Failed", f"Could not remove album songs:\n{e}")

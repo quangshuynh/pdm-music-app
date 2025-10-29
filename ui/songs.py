@@ -38,6 +38,7 @@ class SongsFrame(ttk.Frame):
         ("song", "Song", 260),
         ("artist", "Artist", 200),
         ("album", "Album", 220),
+        ("genre", "Genre", 160),
         ("length", "Length", 80),
         ("release_year", "Year", 80),
         ("listen_count", "Listens", 90),
@@ -45,7 +46,7 @@ class SongsFrame(ttk.Frame):
 
     # visible value index helpers (avoid dynamic lookups)
     IDX_SONG = 1
-    IDX_LISTENS = 6
+    IDX_LISTENS = 7
 
     SEARCH_FIELDS = {
         "song": "s.title",
@@ -273,7 +274,7 @@ class SongsFrame(ttk.Frame):
                 album,
                 length_ms,
                 listen_count,
-                _genre,
+                genre,
                 _release_date,
                 release_year,
             ) in rows:
@@ -282,6 +283,7 @@ class SongsFrame(ttk.Frame):
                     song or "",
                     artist or "",
                     album or "",
+                    genre or "",
                     self._fmt_len(length_ms),
                     str(int(release_year)) if release_year else "",
                     int(listen_count or 0),

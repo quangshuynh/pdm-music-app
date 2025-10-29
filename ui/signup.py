@@ -2,6 +2,8 @@ import re
 import tkinter as tk
 from tkinter import ttk, messagebox
 import bcrypt
+import psycopg2
+from psycopg2 import errorcodes
 from app import App
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9]{1,20}$")
@@ -125,7 +127,31 @@ class SignupFrame(ttk.Frame):
             self.app.safe_show("Dashboard")
 
         except Exception as e:
-            # inspect e for unique violations to show nicer messages
+            # Roll back failed transaction to keep connection usable
+            try:
+                if hasattr(self.app, "conn") and self.app.conn:
+                    self.app.conn.rollback()
+            except Exception:
+                pass
+
+            # Friendly error for username already taken (unique constraint)
+            if (
+                isinstance(e, (psycopg2.IntegrityError, psycopg2.errors.UniqueViolation))
+                and getattr(e, "pgcode", None) == errorcodes.UNIQUE_VIOLATION
+            ):
+                # Try to detect which field triggered the unique violation
+                diag = getattr(e, "diag", None)
+                c_name = (getattr(diag, "constraint_name", "") or "").lower()
+                detail = (getattr(diag, "message_detail", "") or "").lower()
+                full_text = f"{c_name} {detail} {str(e).lower()}"
+                if "username" in full_text:
+                    messagebox.showerror("Username Taken", "That username is already taken. Please choose another.")
+                    return
+                if "email" in full_text:
+                    messagebox.showerror("Email In Use", "That email is already in use. Try logging in or use a different email.")
+                    return
+
+            # Fallback generic error
             messagebox.showerror("Signup Failed", f"Could not create account:\n{e}")
 
     def go_back(self):
