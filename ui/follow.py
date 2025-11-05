@@ -26,6 +26,7 @@ class FollowFrame(ttk.Frame):
         # Buttons
         ttk.Button(bar, text="Follow", command=self.on_follow).pack(side="left", padx=5)
         ttk.Button(bar, text="Unfollow", command=self.on_unfollow).pack(side="left", padx=5)
+        ttk.Button(bar, text="View Stats", command=self.on_view_stats).pack(side="left", padx=5)
         ttk.Button(bar, text="Refresh", command=self.refresh).pack(side="left", padx=5)
         
         # Search widgets
@@ -53,6 +54,117 @@ class FollowFrame(ttk.Frame):
 
         self.status = ttk.Label(self, text="")
         self.status.pack(fill="x", padx=10, pady=5)
+
+    # ---- Stats (modal) ----
+    def _get_selected_username(self):
+        selected = self.tree.selection()
+        if not selected:
+            return None
+        item_id = selected[0]
+        values = self.tree.item(item_id, "values")
+        if not values:
+            return None
+        return values[0]
+
+    def on_view_stats(self):
+        username = (self.target_var.get() or "").strip() or self._get_selected_username()
+        if not username:
+            messagebox.showinfo("Select User", "Enter or select a user to view stats.")
+            return
+        if not self._user_exists(username):
+            messagebox.showinfo("Not Found", f"User '{username}' does not exist.")
+            return
+        try:
+            data = self._fetch_user_stats(username)
+            self._open_stats_modal(username, data)
+        except Exception as e:
+            messagebox.showerror("Stats Error", f"Could not load stats for '{username}':\n{e}")
+
+    def _fetch_user_stats(self, username: str):
+        sql_counts = {
+            "collections": (
+                "SELECT COUNT(*) FROM collection WHERE creator_username = %s",
+                (username,),
+            ),
+            "followers": (
+                "SELECT COUNT(*) FROM user_follow WHERE followed_user_id = %s",
+                (username,),
+            ),
+            "following": (
+                "SELECT COUNT(*) FROM user_follow WHERE follower_user_id = %s",
+                (username,),
+            ),
+        }
+
+        out = {"collections": 0, "followers": 0, "following": 0, "top_artists": []}
+        with self.app.cursor() as cur:
+            for key, (q, params) in sql_counts.items():
+                cur.execute(q, params)
+                (cnt,) = cur.fetchone()
+                out[key] = int(cnt or 0)
+
+            cur.execute(
+                """
+                SELECT artist_label, listens
+                FROM (
+                    SELECT
+                        CASE
+                            WHEN g.group_id IS NOT NULL THEN g.group_id::text
+                            ELSE 'song:' || s.song_id::text
+                        END AS artist_key,
+                        CASE
+                            WHEN g.group_id IS NOT NULL AND g.group_name IS NOT NULL THEN g.group_name
+                            WHEN g.group_id IS NOT NULL AND g.group_name IS NULL THEN 'Unknown (group ' || g.group_id::text || ')'
+                            ELSE 'Unknown Artist: ' || COALESCE(s.title, s.song_id::text)
+                        END AS artist_label,
+                        COUNT(*) AS listens
+                    FROM listen li
+                    JOIN song s ON s.song_id = li.song_id
+                    LEFT JOIN "GROUP" g ON g.group_id = s.group_id
+                    WHERE li.listener_username = %s
+                    GROUP BY artist_key, artist_label
+                ) t
+                ORDER BY listens DESC, LOWER(artist_label) ASC
+                LIMIT 10
+                """,
+                (username,),
+            )
+            out["top_artists"] = cur.fetchall() or []
+
+        return out
+
+    def _open_stats_modal(self, username: str, data):
+        win = tk.Toplevel(self)
+        win.title(f"Stats: {username}")
+        win.transient(self.winfo_toplevel())
+        win.grab_set()
+
+        header = ttk.Label(win, text=f"User Stats for {username}", font=("Segoe UI", 14, "bold"))
+        header.pack(padx=12, pady=(10, 6))
+
+        counts = ttk.Frame(win)
+        counts.pack(fill="x", padx=12, pady=(0, 8))
+        ttk.Label(counts, text=f"Collections: {data.get('collections', 0)}").pack(anchor="w")
+        ttk.Label(counts, text=f"Followers: {data.get('followers', 0)}").pack(anchor="w")
+        ttk.Label(counts, text=f"Following: {data.get('following', 0)}").pack(anchor="w")
+
+        box = ttk.LabelFrame(win, text="Top 10 Artists (by listens)")
+        box.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+
+        tv = ttk.Treeview(box, show="headings", height=10)
+        tv.pack(fill="both", expand=True, padx=4, pady=6)
+        tv["columns"] = ["artist", "listens"]
+        tv.heading("artist", text="Artist")
+        tv.heading("listens", text="Listens")
+        tv.column("artist", width=320, anchor="w", stretch=True)
+        tv.column("listens", width=100, anchor="center", stretch=False)
+
+        for artist, listens in data.get("top_artists", []):
+            tv.insert("", "end", values=(artist or "Unknown", int(listens or 0)))
+
+        btns = ttk.Frame(win)
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(btns, text="Close", command=win.destroy).pack(side="right")
 
     # ---- Data Loading ----
     def _list_following(self, email_filter=None):
