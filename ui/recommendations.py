@@ -191,6 +191,8 @@ class RecommendationsFrame(ttk.Frame):
         """
         Top 50 most popular songs in the last 30 days (rolling),
         fully driven by the listen table.
+
+        Uses DISTINCT (listener_username, date_of_view) like SongsFrame.
         """
         sql = f"""
             SELECT
@@ -199,7 +201,7 @@ class RecommendationsFrame(ttk.Frame):
                 COALESCE(g.group_name, '') AS artist,
                 COALESCE(string_agg(DISTINCT al.album_name, ', '), '') AS album,
                 s.length_ms,
-                COUNT(*) AS listen_count,
+                COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0) AS listen_count,
                 COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
                 EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year
             FROM {self.TBL_LISTEN}
@@ -220,13 +222,12 @@ class RecommendationsFrame(ttk.Frame):
 
     def _query_top_50_followed_users(self, username: str):
         """
-        Top 50 most popular songs among users followed by the current user.
-        Driven from listen + user_follow.
+        Top 50 most popular songs among:
+        – users followed by the current user
+        – and the current user themselves.
 
-        user_follow(
-            follower_user_id  TEXT,
-            followed_user_id  TEXT
-        )
+        Driven from listen + user_follow, using DISTINCT counts
+        like SongsFrame.
         """
         sql = f"""
             SELECT
@@ -235,12 +236,10 @@ class RecommendationsFrame(ttk.Frame):
                 COALESCE(g.group_name, '') AS artist,
                 COALESCE(string_agg(DISTINCT al.album_name, ', '), '') AS album,
                 s.length_ms,
-                COUNT(*) AS listen_count,
+                COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0) AS listen_count,
                 COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
                 EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year
-            FROM {self.TBL_LISTEN}
-            JOIN {self.TBL_FOLLOW}
-                 ON f.followed_user_id = li.listener_username
+            FROM listen li
             JOIN song s
                  ON s.song_id = li.song_id
             LEFT JOIN "GROUP" g
@@ -249,7 +248,16 @@ class RecommendationsFrame(ttk.Frame):
                  ON swa.song_id = s.song_id
             LEFT JOIN album al
                  ON al.album_id = swa.album_id
-            WHERE f.follower_user_id = %s
+            WHERE
+                -- listens by the current user
+                li.listener_username = %s
+                OR
+                -- listens by users the current user follows
+                li.listener_username IN (
+                    SELECT followed_user_id
+                    FROM user_follow
+                    WHERE follower_user_id = %s
+                )
             GROUP BY s.song_id, s.title, s.length_ms, g.group_name
             ORDER BY listen_count DESC,
                      LOWER(s.title) ASC,
@@ -257,7 +265,7 @@ class RecommendationsFrame(ttk.Frame):
             LIMIT 50
         """
         with self.app.cursor() as cur:
-            cur.execute(sql, (username,))
+            cur.execute(sql, (username, username))
             return cur.fetchall()
 
     def _query_top_5_genres_this_month(self):
@@ -496,7 +504,13 @@ class RecommendationsFrame(ttk.Frame):
 
     # ================= Listen handling =================
     def _record_listen_and_patch(self, song_id: str, iid: str):
-        """Insert a single listen (one row in listen), then query the new total for this song and patch only this row."""
+        """
+        Insert a single listen (one row in listen), then query the new total
+        for this song and patch only this row.
+
+        Logic is mode-aware so the recount matches the query used
+        for each view, similar to SongsFrame.
+        """
         if not self.app.session.username:
             messagebox.showwarning("Not logged in", "Please log in first.")
             return
@@ -512,16 +526,59 @@ class RecommendationsFrame(ttk.Frame):
             with self.app.cursor() as cur:
                 # 1) insert one listen row
                 cur.execute(
-                    "INSERT INTO listen (song_id, listener_username, date_of_view) "
-                    "VALUES (%s, %s, NOW())",
+                    """
+                    INSERT INTO listen (song_id, listener_username, date_of_view)
+                    VALUES (%s, %s, NOW())
+                    """,
                     (song_id, self.app.session.username),
                 )
-                # 2) get the updated count just for this song (all time)
-                cur.execute(
-                    "SELECT COUNT(*) FROM listen WHERE song_id = %s",
-                    (song_id,),
-                )
+
+                # 2) get the updated count for this song,
+                #    matching the logic of the current view
+                if self.current_mode == self.MODE_TOP_30:
+                    # same filter as _query_top_50_last_30_days
+                    cur.execute(
+                        """
+                        SELECT COALESCE(COUNT(DISTINCT (listener_username, date_of_view)), 0)
+                        FROM listen
+                        WHERE song_id = %s
+                          AND date_of_view >= NOW() - INTERVAL '30 days'
+                        """,
+                        (song_id,),
+                    )
+                elif self.current_mode == self.MODE_FOLLOWED:
+                    # same filter as _query_top_50_followed_users:
+                    # listeners = you OR users you follow
+                    cur.execute(
+                        """
+                        SELECT COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0)
+                        FROM listen li
+                        WHERE li.song_id = %s
+                          AND (
+                                li.listener_username = %s
+                                OR li.listener_username IN (
+                                    SELECT followed_user_id
+                                    FROM user_follow
+                                    WHERE follower_user_id = %s
+                                )
+                              )
+                        """,
+                        (song_id, self.app.session.username, self.app.session.username),
+                    )
+                else:
+                    # For recommendations or any other song-based view,
+                    # fall back to global distinct count like SongsFrame
+                    cur.execute(
+                        """
+                        SELECT COALESCE(COUNT(DISTINCT (listener_username, date_of_view)), 0)
+                        FROM listen
+                        WHERE song_id = %s
+                        """,
+                        (song_id,),
+                    )
+
                 (new_count,) = cur.fetchone()
+
             self.app.conn.commit()
         except Exception as e:
             messagebox.showerror("Listen Error", f"Could not record listen:\n{e}")
