@@ -76,6 +76,7 @@ class App(tk.Tk):
         from ui.songs import SongsFrame
         from ui.follow import FollowFrame
         from ui.collections import CollectionsFrame
+        from ui.recommendations import RecommendationsFrame
 
         # map route name -> Frame class
         routes: Dict[str, Type[tk.Frame]] = {
@@ -85,6 +86,7 @@ class App(tk.Tk):
             "Songs": SongsFrame,
             "Follow": FollowFrame,
             "Collections": CollectionsFrame,
+            "Recommendations": RecommendationsFrame,
         }
         for name, FrameCls in routes.items():
             frame = FrameCls(parent=container, app=self)  # pass app for access
