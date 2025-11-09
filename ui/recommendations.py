@@ -16,9 +16,7 @@ class RecommendationsFrame(ttk.Frame):
         * your play history (e.g. genre, artist)
         * play history of similar users
 
-    UI is similar to SongsFrame:
-    – Treeview with 'Listen' pseudo-button for song-based views
-    – 'Add to Collection' and 'Back' buttons
+    All popularity / recommendation logic is driven from the `listen` table.
     """
 
     # Table aliases (same style as SongsFrame)
@@ -28,7 +26,8 @@ class RecommendationsFrame(ttk.Frame):
     TBL_ALBUM = "album al"
     TBL_LISTEN = "listen li"
     TBL_SONG_GENRE = "song_genre sg"
-    TBL_FOLLOW = "follow f"  # adjust if your follow table name differs
+    # user_follow has columns: follower_user_id, followed_user_id
+    TBL_FOLLOW = "user_follow f"
 
     # Song-view columns: (id, header, width)
     COLS_SONG = [
@@ -187,20 +186,11 @@ class RecommendationsFrame(ttk.Frame):
         except Exception:
             return ""
 
-    # ================= Base FROM helpers =================
-    def _base_from_song_listen(self) -> str:
-        return f"""
-        FROM {self.TBL_SONG}
-        LEFT JOIN {self.TBL_GROUP}      ON g.group_id = s.group_id
-        LEFT JOIN {self.TBL_SONG_ALBUM} ON swa.song_id = s.song_id
-        LEFT JOIN {self.TBL_ALBUM}      ON al.album_id = swa.album_id
-        JOIN {self.TBL_LISTEN}          ON li.song_id = s.song_id
-        """
-
     # ================= SQL Queries =================
     def _query_top_50_last_30_days(self):
         """
-        Top 50 most popular songs in the last 30 days (rolling).
+        Top 50 most popular songs in the last 30 days (rolling),
+        fully driven by the listen table.
         """
         sql = f"""
             SELECT
@@ -209,10 +199,14 @@ class RecommendationsFrame(ttk.Frame):
                 COALESCE(g.group_name, '') AS artist,
                 COALESCE(string_agg(DISTINCT al.album_name, ', '), '') AS album,
                 s.length_ms,
-                COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0) AS listen_count,
+                COUNT(*) AS listen_count,
                 COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
                 EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year
-            {self._base_from_song_listen()}
+            FROM {self.TBL_LISTEN}
+            JOIN song s                ON s.song_id = li.song_id
+            LEFT JOIN "GROUP" g        ON g.group_id = s.group_id
+            LEFT JOIN song_within_album swa ON swa.song_id = s.song_id
+            LEFT JOIN album al         ON al.album_id = swa.album_id
             WHERE li.date_of_view >= NOW() - INTERVAL '30 days'
             GROUP BY s.song_id, s.title, s.length_ms, g.group_name
             ORDER BY listen_count DESC,
@@ -227,9 +221,12 @@ class RecommendationsFrame(ttk.Frame):
     def _query_top_50_followed_users(self, username: str):
         """
         Top 50 most popular songs among users followed by the current user.
-        Assumes a table like:
-            follow(follower_username TEXT, followee_username TEXT)
-        Adjust table/column names if yours differ.
+        Driven from listen + user_follow.
+
+        user_follow(
+            follower_user_id  TEXT,
+            followed_user_id  TEXT
+        )
         """
         sql = f"""
             SELECT
@@ -238,12 +235,21 @@ class RecommendationsFrame(ttk.Frame):
                 COALESCE(g.group_name, '') AS artist,
                 COALESCE(string_agg(DISTINCT al.album_name, ', '), '') AS album,
                 s.length_ms,
-                COALESCE(COUNT(DISTINCT (li.listener_username, li.date_of_view)), 0) AS listen_count,
+                COUNT(*) AS listen_count,
                 COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
                 EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year
-            {self._base_from_song_listen()}
-            JOIN {self.TBL_FOLLOW} ON f.followee_username = li.listener_username
-            WHERE f.follower_username = %s
+            FROM {self.TBL_LISTEN}
+            JOIN {self.TBL_FOLLOW}
+                 ON f.followed_user_id = li.listener_username
+            JOIN song s
+                 ON s.song_id = li.song_id
+            LEFT JOIN "GROUP" g
+                 ON g.group_id = s.group_id
+            LEFT JOIN song_within_album swa
+                 ON swa.song_id = s.song_id
+            LEFT JOIN album al
+                 ON al.album_id = swa.album_id
+            WHERE f.follower_user_id = %s
             GROUP BY s.song_id, s.title, s.length_ms, g.group_name
             ORDER BY listen_count DESC,
                      LOWER(s.title) ASC,
@@ -257,13 +263,15 @@ class RecommendationsFrame(ttk.Frame):
     def _query_top_5_genres_this_month(self):
         """
         Top 5 most popular genres of the current calendar month.
+        Driven from listen + song_genre.
         """
         sql = f"""
             SELECT
                 sg.genre,
-                COUNT(DISTINCT (li.listener_username, li.date_of_view)) AS listens_this_month
+                COUNT(*) AS listens_this_month
             FROM {self.TBL_LISTEN}
-            JOIN {self.TBL_SONG_GENRE} ON sg.song_id = li.song_id
+            JOIN {self.TBL_SONG_GENRE}
+                 ON sg.song_id = li.song_id
             WHERE li.date_of_view >= date_trunc('month', CURRENT_DATE)
               AND li.date_of_view <  date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
             GROUP BY sg.genre
@@ -277,8 +285,8 @@ class RecommendationsFrame(ttk.Frame):
     def _query_recommended_songs(self, username: str):
         """
         Recommend songs based on:
-        – user's play history
-        – play history of similar users
+        – user's play history in `listen`
+        – play history of similar users in `listen`
 
         Similar users: share at least 3 songs with the current user.
         """
@@ -291,12 +299,12 @@ class RecommendationsFrame(ttk.Frame):
             similar_users AS (
                 SELECT
                     li.listener_username,
-                    COUNT(*) AS overlap
+                    COUNT(DISTINCT li.song_id) AS overlap
                 FROM listen li
                 JOIN user_listens ul ON ul.song_id = li.song_id
                 WHERE li.listener_username <> %s
                 GROUP BY li.listener_username
-                HAVING COUNT(*) >= 3
+                HAVING COUNT(DISTINCT li.song_id) >= 3
             ),
             candidate_plays AS (
                 SELECT
@@ -488,7 +496,7 @@ class RecommendationsFrame(ttk.Frame):
 
     # ================= Listen handling =================
     def _record_listen_and_patch(self, song_id: str, iid: str):
-        """Insert a single listen, then query the new total for this song and patch only this row. Also show a popup."""
+        """Insert a single listen (one row in listen), then query the new total for this song and patch only this row."""
         if not self.app.session.username:
             messagebox.showwarning("Not logged in", "Please log in first.")
             return
@@ -508,10 +516,9 @@ class RecommendationsFrame(ttk.Frame):
                     "VALUES (%s, %s, NOW())",
                     (song_id, self.app.session.username),
                 )
-                # 2) get the updated count just for this song
+                # 2) get the updated count just for this song (all time)
                 cur.execute(
-                    "SELECT COALESCE(COUNT(DISTINCT (listener_username, date_of_view)), 0) "
-                    "FROM listen WHERE song_id = %s",
+                    "SELECT COUNT(*) FROM listen WHERE song_id = %s",
                     (song_id,),
                 )
                 (new_count,) = cur.fetchone()
