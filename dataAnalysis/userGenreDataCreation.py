@@ -76,9 +76,6 @@ for user in users:
         if current_user[genre_index[genre]] > max_of_genre[genre][0]:
             max_of_genre[genre] = [current_user[genre_index[genre]],user]
 
-    # dividing different proportion by amount of genres
-    current_user[-2] = current_user[-2]/len(genres)
-
     user_song_pref_data[user] = current_user
 
 
