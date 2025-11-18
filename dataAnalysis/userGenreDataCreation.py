@@ -72,7 +72,7 @@ for user in users:
     # turning counts into proportions
     for genre in genres:
         current_user[genre_index[genre]] = current_user[genre_index[genre]]/current_user[-1]
-        current_user[-2] += abs(current_user[genre_index[genre]]-proportion_of_genres[genre])
+        current_user[-2] += current_user[genre_index[genre]]/proportion_of_genres[genre]
         if current_user[genre_index[genre]] > max_of_genre[genre][0]:
             max_of_genre[genre] = [current_user[genre_index[genre]],user]
 
