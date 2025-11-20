@@ -1,0 +1,758 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{url}
+\lstdefinelanguage{SQL}{
+  morekeywords={SELECT,FROM,WHERE,INSERT,INTO,VALUES,UPDATE,SET,DELETE,CREATE,TABLE,PRIMARY,KEY,
+    FOREIGN,REFERENCES,UNIQUE,NOT,NULL,DEFAULT,TIMESTAMP,ON,CONFLICT,DO,NOTHING,
+    CHECK,CONSTRAINT,COUNT,DISTINCT,VARCHAR,DATE,INT,INTEGER,NOW},
+  sensitive=false,
+  morecomment=[l]{--},
+  morestring=[b]'
+}
+\lstset{
+  language=SQL,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\bfseries\color{blue!60!black},
+  commentstyle=\itshape\color{gray!70!black},
+  stringstyle=\color{green!40!black},
+  showstringspaces=false,
+  columns=fullflexible,
+  frame=single,
+  breaklines=true,
+  tabsize=2
+}
+
+\title{Application Domain}
+
+\date{\today} 
+
+\author{\textbf{Team 48}   \\
+        Uday Bista\\
+        Kai Fan\\
+        Quang Huynh\\
+        Garett Rogers\\
+        }
+
+\begin{document}
+
+\maketitle
+
+% PHASE 1 DOCUMENTATION
+\section{Introduction (Phase 1)}
+
+\qquad Our project is a \textit{Music Information Database} designed to manage and organize various aspects of musical data. The database will store information about \textbf{users}, \textbf{artists}, \textbf{songs}, \textbf{collections} (user-created), \textbf{albums}, \textbf{songs within a collection}, and \textbf{genres}
+
+In addition, we include specialized relationships to represent user interactions such as \textbf{following other users}, \textbf{listening history}, and \textbf{ratings}.
+
+For the implementation, the back-end will be developed in \textbf{Java}, while \textbf{SQL} will be used for querying and managing the database on the front-end. To integrate these layers, we will employ the \textbf{Spring Framework}, which provides a robust and responsive bridge between Java and SQL, ensuring reliability and efficiency in data handling.\\\\
+Our responsibilities are as follows:
+\begin{description}
+    \item Uday Bista: Helper (Help Kai and Quang with implementation and documentation and listen to Gayle's music.)
+    \item Kai Fan: Full-Stack Developer (Work on both SQL implementation and Java database)
+    \item Quang Huynh: Database Engineer (Focus on SQL implementation and database related tasks)
+    \item Garett (Gayle) Rogers: Group DJ, gathers music (data) for the group to play (put in the SQL)
+\end{description}
+
+\section{Design (Phase 1)}
+\subsection{Conceptual Model}
+\begin{center}
+    \includegraphics[width=1\textwidth]{assets/ERDiagram_phase1.pdf}
+\end{center}
+\subsubsection{Process and Design Choices}
+
+The conceptual model shown in the ER diagram represents the structure of our \textbf{Music Information Database}, capturing all essential entities and relationships required to store and manage musical data. The design process began by identifying key real-world concepts—such as \textbf{Users, Songs, Artists, Albums, Collections, and Genres}—and then refining how these concepts interact through relationships like \textbf{Listens, Rates, Follows, Contains, and HasGenre}.
+
+\paragraph{Design Process}
+We began by listing the core information our system needed to represent, focusing on user activity, musical content, and organization. Once the main entities were identified, we mapped their attributes, primary keys, and relationships. Normalization principles were applied throughout to avoid redundancy and ensure logical consistency between entities. Feedback from preliminary drafts guided refinements that improved clarity, scalability, and adherence to database design best practices.
+
+\paragraph{Key Design Choices}
+\begin{enumerate}
+    \item \textbf{Entity Identification:} Each real-world concept is modeled as an entity:
+    \begin{itemize}
+        \item \textbf{User:} Represents individuals interacting with the system, with attributes such as username, email, password, and timestamps for creation and last access.
+        \item \textbf{Artist} and \textbf{Album:} Capture creators and published works, each with unique IDs and descriptive attributes such as name and release date.
+        \item \textbf{Song:} Acts as the central entity connecting artists, albums, collections, and genres.
+        \item \textbf{Collection:} Represents user-created playlists or sets of songs.
+        \item \textbf{Genre:} Represents musical classifications shared by both songs and albums.
+    \end{itemize}
+
+    \item \textbf{Relationships and Cardinalities:} Relationships were designed to accurately represent real-world interactions:
+    \begin{itemize}
+        \item \textbf{Creates:} Connects an artist to the songs they produce (1..M to 0..N).
+        \item \textbf{Contains:} Allows both collections and albums to include multiple songs, while songs may appear in multiple collections or albums.
+        \item \textbf{HasGenre:} Represents many-to-many relationships between songs/albums and genres.
+        \item \textbf{Rates} and \textbf{Listens:} Capture user interactions with songs, including rating values and listening timestamps.
+        \item \textbf{Follows:} Models social interactions between users, allowing them to follow other users.
+    \end{itemize}
+    Each cardinality was determined based on realistic use cases—for example, a user can rate many songs, and a song can have ratings from many users.
+
+    \item \textbf{Normalization and Modularity:} Each table captures a distinct concept, ensuring compliance with Third Normal Form (3NF). Redundant data—such as storing genre names in multiple places—was avoided using bridge tables like \texttt{SONG\_GENRE} and \texttt{ALBUM\_GENRE}.
+
+    \item \textbf{Specialized Relationships:} 
+    \begin{itemize}
+        \item The \textbf{Listens} relationship includes a \textit{timestamp} attribute, enabling the same user to listen to a song multiple times with unique entries.
+        \item The \textbf{Rates} and \textbf{Follows} relationships enforce composite primary keys to maintain uniqueness (e.g., a user cannot follow themselves or rate a song more than once).
+        \item The \textbf{Contains} relationship for \textbf{Album–Song} includes a \textit{track\_number} attribute to preserve song order within albums.
+    \end{itemize}
+
+    \item \textbf{Scalability and Extendability:} The design supports potential future extensions such as comments, user-shared playlists, or recommendation history without structural overhauls. Its modular architecture allows for efficient queries and simplified maintenance.
+\end{enumerate}
+
+\paragraph{Rationale}
+The final conceptual model balances \textbf{functionality}, \textbf{efficiency}, and \textbf{clarity}. Each design decision supports a flexible and normalized relational schema capable of handling large-scale music data and user interaction records. This model also provides a solid foundation for future analytical features such as personalized recommendations and listening trends.
+
+\subsection{Reduction to Tables}
+
+\begin{longtable}{@{}p{0.95\textwidth}@{}}
+
+\textbf{USER}(\underline{username}, password, first\_name, last\_name, email, display\_name, creation\_date, last\_accessed) \\
+This was created to map directly to the requested User entity within the domain document. \\[1em]
+
+\textbf{ARTIST}(\underline{artist\_id}, artist\_name) \\
+This was created to map directly to the requested Artist entity within the domain document, and to map the requested artist attribute to both albums and songs. \\[1em]
+
+\textbf{GROUP}(\underline{group\_id}, group\_name) \\
+This was created to allow for multiple artists to be credited on the same album or song; this can be viewed like a band. \\[1em]
+
+\textbf{ARTIST\_IN\_GROUP}(\underline{group\_id}, \underline{artist\_id}) \\
+This is how multiple artists are tracked within a group. \\[1em]
+
+\textbf{SONG}(\underline{song\_id}, group\_id, title, length\_ms, release\_date) \\
+This was created to map directly to the requested Song entity within the domain document. \\[1em]
+
+\textbf{COLLECTION}(\underline{collection\_id}, creator\_username, collection\_name, creation\_date) \\
+This was created to allow the User to make collections of different songs. \\[1em]
+
+\textbf{ALBUM}(\underline{album\_id}, group\_id, release\_date, album\_name) \\
+This was created to map directly to the requested Album entity within the domain document. \\[1em]
+
+\textbf{SONG\_WITHIN\_COLLECTION}(\underline{collection\_id}, \underline{song\_id}) \\
+This was created to track which songs are in which collections, and vice versa. Track number is also tracked here. \\[1em]
+
+\textbf{SONG\_WITHIN\_ALBUM}(\underline{album\_id}, \underline{song\_id}, track\_number) \\
+This was created to track which songs are in which albums, and vice versa. Track number is also tracked here. \\[1em]
+
+\textbf{USER\_FOLLOW}(\underline{follower\_user\_id}, \underline{followed\_user\_id}) \\
+This was created to allow for the User to follow other Users. \\[1em]
+
+\textbf{ARTIST\_FOLLOW}(\underline{follower\_user\_id}, \underline{artist\_id}) \\
+This was created to allow for the User to follow Artists. \\[1em]
+
+\textbf{LISTEN}(\underline{listener\_username}, \underline{song\_id}, date\_of\_view) \\
+This was created to track when a User has listened to a song. \\[1em]
+
+\textbf{RATING}(\underline{rater\_username}, \underline{song\_id}, rating) \\
+This was created to allow for the User to rate different songs. \\[1em]
+
+\textbf{SONG\_GENRE}(\underline{song\_id}, genre) \\
+This was created to track the genre of different songs, and to allow for multiple genres on a specific song. \\[1em]
+
+\textbf{ALBUM\_GENRE}(\underline{album\_id}, genre) \\
+This was created to track the genre of different albums, and to allow for multiple genres on a specific album. \\
+
+\end{longtable}
+
+
+
+\subsection{Data Requirements/Constraints}
+\subsubsection{Definitions:}
+\begin{description}
+    \item[Numbers]: The set containing \{1, 2, 3, 4, 5, 6, 7, 8, 9, 0\}
+    \item[Letters]: The set containing \{q, Q, w, W, e, E, r, R, t, T, y, Y, u, U, i, I, o, O, p, P, a, A, s, S, d, D, f, F, g, G, h, H, j, J, k, K, l, L, z, Z, x, X, c, C, v, V, b, B, n, N, m, M\}
+    \item[Special Characters]: The set containing \{!, @, \#, \$, \%, \textasciicircum, \&, *, (, ), -, \_, =, +, [, \{, \}, ], \textbackslash, $|$, :, ;, ", ', $<$, $>$, ?, /, $\sim$\}
+    \item[Special Name Characters]: A subset of Special Characters containing \{-, '\}
+    \item[Space]: The set containing \{ \} (it's a space character)
+\end{description}
+\subsubsection{Domains:}
+Foreign Keys are not included, as the domain would just be restated.
+The format for this section is
+
+VARIABLE\_NAME (VARIABLE\_TYPE) (UNIQUE/REQUIRED) : DOMAIN\_EXPLANATION
+
+VARIABLE\_NAME / DOMAIN\_EXPLANATION : Self explanatory.
+
+VARIABLE\_TYPE : SQL Data Type of the variable.
+
+UNIQUE/REQUIRED : Tells you if the variable is unique or required, it can be (ur), (u), (r), or not there, the u represents if it's unique, the r represents if it's required.
+\begin{description}
+    \item [User]
+    \begin{description} \item
+        \item username (VARCHAR) (ur) : 1 - 20 character string, each character is a part of the union of Numbers, and Letters.
+        \item password (VARCHAR) (r) : 8 - 30 character string, each character is a part of the union of Numbers, Letters, and Special Characters.
+        \item first\_name (VARCHAR) (r) : 1 - 40 character string, each character is a part of the union of Letters, Space, and Special Name Characters.
+        \item last\_name (VARCHAR) (r) : 1 - 40 character string, each character is a part of the union of Letters, Space, and Special Name Characters.
+        \item email (VARCHAR) (r) : Up to 320 character string, 64 characters of any type before the @, and 254 characters after in the form of a website domain. Characters are not limited to any subset.
+        \item display\_name (VARCHAR) : 1 - 50 character string, each character is a part of the union of Numbers, Letters, and Space. If there is no set display\_name it defaults to the username.
+        \item creation\_date (DATETIME) (r) : Any valid datetime.
+        \item last\_accessed (DATETIME) : Any valid datetime.
+    \end{description}
+    \item [Artist]
+    \begin{description} \item
+        \item artist\_id (VARCHAR) (ur) : 1 - 20 character string, begins with @, each character is a part of the union of Numbers, and Letters.
+        \item artist\_name (VARCHAR) (r) : 1 - 50 character string, each character is a part of the union of Numbers, Letters, Space, and Special Characters.
+    \end{description}
+    \item [Group]
+    \begin{description} \item
+        \item group\_id (VARCHAR) (ur) : 1 - 20 character string, begins with \&, each character is a part of the union of Numbers, and Letters.
+        \item group\_name (VARCHAR) (r) : 1 - 50 character string, each character is a part of the union of Numbers, Letters, Space, and Special Characters.
+    \end{description}
+    \item [Song]
+    \begin{description} \item
+        \item song\_id (VARCHAR) (ur) : 1 - 20 character string, each character is a part of the union of Numbers, and Letters.
+        \item title (VARCHAR) (r) : 1 - 20 character string, each character is a part of the union of Numbers, Letters, Space, and Special Characters.
+        \item length\_ms (INTEGER) (r) : Any value integer above 0.
+        \item release\_date (DATETIME) : Any valid datetime.
+    \end{description}
+    \item [Collection]
+    \begin{description} \item
+        \item collection\_id (VARCHAR) (ur) : 1 - 20 character string, begins with \#, each character is a part of the union of Numbers, and Letters.
+        \item collection\_name (VARCHAR) (r) : 1 - 50 character string, each character is a part of the union of Numbers, Letters, Space, and Special Characters.
+        \item creation\_date (DATETIME) (r) : Any valid datetime.
+    \end{description}
+    \item [Album]
+    \begin{description} \item
+        \item album\_id (VARCHAR) (ur) : 1 - 20 character string, begins with \$, each character is a part of the union of Numbers, and Letters.
+        \item release\_date (DATETIME) : Any valid datetime.
+        \item album\_name (VARCHAR) (r) : 1 - 50 character string, each character is a part of the union of Numbers, Letters, Space, and Special Characters.
+    \end{description}
+    \item [Song\_Within\_Album]
+    \begin{description} \item
+        \item track\_number (INTEGER) (r) : Any valid integer above 0.
+    \end{description}
+    \item [Listen]
+    \begin{description} \item
+        \item listener\_username (VARCHAR) (ur) : 1 - 20 character string, each character is a part of the union of Numbers, and Letters.
+        \item song\_id (VARCHAR) (ur) : 1 - 20 character string, each character is a part of the union of Numbers, and Letters.
+        \item date\_of\_view (DATETIME) (r) : Any valid datetime.
+    \end{description}
+    \item [Rating]
+    \begin{description} \item
+        \item rating (INTEGER) (r) : Any valid integer between 1 - 5.
+    \end{description}
+    \item [Genre]
+    \begin{description} \item
+        \item genre (VARCHAR) (r) : One of, \{"Rock", "Pop", "Alternative", "Breakcore", "Blues", "Country", "Dance", "Folk", "Ethnic", "Video Game", "Lo-Fi", "Jazz", "Rap", "Hip Hop", "Classical", "Easy Listening", "Electronic", "Soul", "Metal", "Punk", "Religious"\}.
+    \end{description}
+\end{description}
+\subsubsection{Constraints:}
+\begin{description}
+    \item No two \texttt{username}, \texttt{group\_id}, and \texttt{artist\_id} may be the same.
+    \item No two \texttt{collection\_id}, and \texttt{album\_id} may be the same.
+    \item \texttt{last\_accessed}, \texttt{date\_of\_view}, \texttt{creation\_date}, and \texttt{last\_accessed} cannot be in the past.
+    \item No two \textbf{Song} may share a \texttt{track\_number} within the same \textbf{Album}.
+    \item A \textbf{User} cannot follow themselves.
+    \item A \textbf{User} can only follow another \textbf{User} or \textbf{Artist} once.
+    \item A \textbf{User} can only have one \textbf{Rat}ing of a \textbf{Song} at any one time.
+\end{description}
+
+
+\subsection{Sample instance data}
+
+\begin{itemize}
+    \item \textbf{USER}
+    \begin{itemize}
+        \item USER(\underline{UdayB}, 1\_5N1Ff\_7032, Uday, Bista, udayb@example.com, Uday B, 10/01/2025, 10/05/2025)
+        \item USER(\underline{KaiFan01}, f3M60y\_10v3R, Kai, Fan, kai.fan@example.com, Kai F, 10/02/2025, 10/06/2025)
+        \item USER(\underline{QuangH}, 9a/\_+03\_53x, Quang, Huynh, quang.h@example.com, Quang H, 10/03/2025, 10/07/2025)
+        \item USER(\underline{GayleR}, M!xItUp2025, Garett, Rogers, gayle.rogers@example.com, Gayle, 10/04/2025, 10/08/2025)
+        \item USER(\underline{BurgerMan}, Pa55word++OK, Johnny, Burger, jburger@example.com, BURGER, 10/05/2025, 10/09/2025)
+    \end{itemize}
+
+    \item \textbf{ARTIST}
+    \begin{itemize}
+        \item ARTIST(\underline{@A629463}, xaviersobased)
+        \item ARTIST(\underline{@AR5566}, Mac DeMarco)
+        \item ARTIST(\underline{@BEA900}, Playboi Carti)
+        \item ARTIST(\underline{@DJ7777}, beabadoobee)
+        \item ARTIST(\underline{@V9012}, Feng)
+    \end{itemize}
+
+    \item \textbf{GROUP}
+    \begin{itemize}
+        \item GROUP(\underline{\&GR46129}, Queen)
+        \item GROUP(\underline{\&GR10001}, Pixies)
+        \item GROUP(\underline{\&GR10002}, Arctic Monkeys)
+        \item GROUP(\underline{\&GR10003}, Radiohead)
+        \item GROUP(\underline{\&GR10004}, MGMT)
+    \end{itemize}
+
+    \item \textbf{ARTIST\_IN\_GROUP}
+    \begin{itemize}
+        \item ARTIST\_IN\_GROUP(\underline{\&GR46129}, \underline{@A629463})
+        \item ARTIST\_IN\_GROUP(\underline{\&GR10001}, \underline{@V9012})
+        \item ARTIST\_IN\_GROUP(\underline{\&GR10002}, \underline{@BEA900})
+        \item ARTIST\_IN\_GROUP(\underline{\&GR10002}, \underline{@DJ7777})
+        \item ARTIST\_IN\_GROUP(\underline{\&GR10004}, \underline{@A629463})
+    \end{itemize}
+
+    \item \textbf{SONG}
+    \begin{itemize}
+        \item SONG(\underline{67A}, \&GR46129, Doot Doot 67, 150000, 11/01/2025)
+        \item SONG(\underline{B12X9}, \&GR10004, Orbit, 210000, 11/10/2025)
+        \item SONG(\underline{QW34E}, \&GR10001, Neon Rain, 185000, 11/15/2025)
+        \item SONG(\underline{LMN45}, \&GR10004, Soft Glow, 240000, 12/05/2025)
+        \item SONG(\underline{ZX90P}, \&GR10003, Midnight Run, 199000, 12/20/2025)
+    \end{itemize}
+
+    \item \textbf{COLLECTION}
+    \begin{itemize}
+        \item COLLECTION(\underline{\#C1}, KaiFan01, Morning Mix, 10/10/2025)
+        \item COLLECTION(\underline{\#C2}, UdayB, Focus Set, 10/11/2025)
+        \item COLLECTION(\underline{\#C3}, QuangH, Road Tunes, 10/12/2025)
+        \item COLLECTION(\underline{\#C4}, GayleR, Gym Boost, 10/13/2025)
+        \item COLLECTION(\underline{\#C5}, BurgerMan, Chill Night, 10/14/2025)
+    \end{itemize}
+
+    \item \textbf{ALBUM}
+    \begin{itemize}
+        \item ALBUM(\underline{\$ALB1}, \&GR46129, 12/01/2015, Crown Jewels)
+        \item ALBUM(\underline{\$ALB2}, \&GR10004, 12/15/2022, Golden Hour)
+        \item ALBUM(\underline{\$ALB3}, \&GR10001, 12/20/2021, Lines \& Echoes)
+        \item ALBUM(\underline{\$ALB4}, \&GR10004, 01/10/2020, Zero Gravity)
+        \item ALBUM(\underline{\$ALB5}, \&GR10003, 02/01/2016, After Dark)
+    \end{itemize}
+
+    \item \textbf{SONG\_WITHIN\_COLLECTION}
+    \begin{itemize}
+        \item SONG\_WITHIN\_COLLECTION(\underline{\#C1}, \underline{67A})
+        \item SONG\_WITHIN\_COLLECTION(\underline{\#C1}, \underline{B12X9})
+        \item SONG\_WITHIN\_COLLECTION(\underline{\#C2}, \underline{QW34E})
+        \item SONG\_WITHIN\_COLLECTION(\underline{\#C3}, \underline{LMN45})
+        \item SONG\_WITHIN\_COLLECTION(\underline{\#C4}, \underline{QW34E})
+    \end{itemize}
+
+    \item \textbf{SONG\_WITHIN\_ALBUM}
+    \begin{itemize}
+        \item SONG\_WITHIN\_ALBUM(\underline{\$ALB1}, \underline{67A}, 1)
+        \item SONG\_WITHIN\_ALBUM(\underline{\$ALB2}, \underline{B12X9}, 1)
+        \item SONG\_WITHIN\_ALBUM(\underline{\$ALB5}, \underline{QW34E}, 1)
+        \item SONG\_WITHIN\_ALBUM(\underline{\$ALB2}, \underline{LMN45}, 2)
+        \item SONG\_WITHIN\_ALBUM(\underline{\$ALB3}, \underline{QW34E}, 1)
+    \end{itemize}
+
+    \item \textbf{USER\_FOLLOW}
+    \begin{itemize}
+        \item USER\_FOLLOW(\underline{UdayB}, \underline{GayleR})
+        \item USER\_FOLLOW(\underline{KaiFan01}, \underline{GayleR})
+        \item USER\_FOLLOW(\underline{QuangH}, \underline{GayleR})
+        \item USER\_FOLLOW(\underline{GayleR}, \underline{BurgerMan})
+        \item USER\_FOLLOW(\underline{GayleR}, \underline{QuangH})
+    \end{itemize}
+
+    \item \textbf{LISTEN}
+    \begin{itemize}
+        \item LISTEN(\underline{UdayB}, \underline{67A}, \underline{10/15/2024})
+        \item LISTEN(\underline{KaiFan01}, \underline{B12X9}, \underline{10/16/2024})
+        \item LISTEN(\underline{QuangH}, \underline{QW34E}, \underline{10/17/2024})
+        \item LISTEN(\underline{GayleR}, \underline{LMN45}, \underline{10/18/2024})
+        \item LISTEN(\underline{BurgerMan}, \underline{ZX90P}, \underline{10/19/2024})
+    \end{itemize}
+
+    \item \textbf{RATING}
+    \begin{itemize}
+        \item RATING(\underline{UdayB}, \underline{67A}, 5)
+        \item RATING(\underline{KaiFan01}, \underline{B12X9}, 4)
+        \item RATING(\underline{QuangH}, \underline{QW34E}, 5)
+        \item RATING(\underline{GayleR}, \underline{LMN45}, 3)
+        \item RATING(\underline{BurgerMan}, \underline{ZX90P}, 4)
+    \end{itemize}
+
+    \item \textbf{SONG\_GENRE}
+    \begin{itemize}
+        \item SONG\_GENRE(\underline{67A}, \underline{Rock})
+        \item SONG\_GENRE(\underline{B12X9}, \underline{Electronic})
+        \item SONG\_GENRE(\underline{QW34E}, \underline{Alternative})
+        \item SONG\_GENRE(\underline{B12X9}, \underline{Pop})
+        \item SONG\_GENRE(\underline{B12X9}, \underline{Dance})
+    \end{itemize}
+
+    \item \textbf{ALBUM\_GENRE}
+    \begin{itemize}
+        \item ALBUM\_GENRE(\underline{\$ALB1}, \underline{Rock})
+        \item ALBUM\_GENRE(\underline{\$ALB1}, \underline{Electronic})
+        \item ALBUM\_GENRE(\underline{\$ALB1}, \underline{Alternative})
+        \item ALBUM\_GENRE(\underline{\$ALB2}, \underline{Pop})
+        \item ALBUM\_GENRE(\underline{\$ALB5}, \underline{Dance})
+    \end{itemize}
+\end{itemize}
+
+% PHASE 2 DOCUMENTATION
+\section{Implementation (Phase 2)}
+
+\subsection{Current Design Phase (Updates)}
+During Phase 2, we refined our schema to align with both the application logic and instructor feedback. The key updates include:
+
+\begin{itemize}
+  \item \textbf{Genre as an Entity:} We promoted \texttt{GENRE} to a full entity, since multiple songs and albums can share genres. Two associative tables, \texttt{SONG\_GENRE} and \texttt{ALBUM\_GENRE}, now link these relationships. This change is also reflected in the ERD.
+  
+  \item \textbf{Follow Relationship Scope:} The follow feature now only supports \textit{user-to-user} relationships through \texttt{USER\_FOLLOW(follower\_username, followed\_username)}. The previously proposed user-to-artist follow was removed to reduce unnecessary complexity.
+  
+  \item \textbf{Listen Timestamp in Primary Key:} The \texttt{LISTEN(listener\_username, song\_id, date\_of\_view)} table uses a composite primary key including the timestamp to allow users to listen to the same song multiple times. In the ERD, the \texttt{date\_of\_view} attribute is underlined to show it is part of the key.
+  
+  \item \textbf{Removed Nonexistent Entities:} The \texttt{GROUP} and \texttt{ARTIST\_IN\_GROUP} entities were removed since they were not present in the Entity Relation Diagram (ERD) and would only add unnecessary redundancy. Similar relationships can be implemented later using SQL queries if needed.
+  
+  \item \textbf{Synchronized Collection Attributes:} The \texttt{COLLECTION} entity now matches the ERD exactly, with the attributes \texttt{collection\_id}, \texttt{owner\_username}, \texttt{name}, and \texttt{created\_at}.
+  
+  \item \textbf{Composite Keys for Associative Entities:} To support idempotent inserts using \texttt{ON CONFLICT DO NOTHING}, all associative entities now have composite primary keys. These include:
+  \begin{itemize}
+      \item \texttt{USER\_FOLLOW(follower\_username, followed\_username)}
+      \item \texttt{SONG\_WITHIN\_COLLECTION(collection\_id, song\_id)}
+      \item \texttt{RATING(rater\_username, song\_id)}
+      \item \texttt{SONG\_GENRE(song\_id, genre\_id)}
+      \item \texttt{ALBUM\_GENRE(album\_id, genre\_id)}
+  \end{itemize}
+
+  \item \textbf{Foreign Key and Index Integrity:} All foreign keys are explicitly declared and automatically indexed through their primary or unique key relationships to maintain referential integrity and ensure efficient joins.
+\end{itemize}
+
+\subsection{Conceptual Model}
+\begin{center}
+    \includegraphics[width=1\textwidth]{assets/ERDiagram_phase2.png}
+\end{center}
+
+\subsection{Reduction to Tables}
+\noindent The working reduction to tables (normalized) is:
+\begin{itemize}
+    \item \textbf{USER}(\underline{username}, password, first\_name, last\_name, email, display\_name, creation\_date, last\_accessed)
+    \item \textbf{ARTIST}(\underline{artist\_id}, artist\_name)
+    \item \textbf{ALBUM}(\underline{album\_id}, album\_name, release\_date)
+    \item \textbf{SONG}(\underline{song\_id}, title, length\_ms, release\_date)
+    \item \textbf{GENRE}(\underline{genre\_id}, genre\_name)
+    \item \textbf{SONG\_ARTIST}(\underline{song\_id}, \underline{artist\_id})
+    \item \textbf{ALBUM\_ARTIST}(\underline{album\_id}, \underline{artist\_id})
+    \item \textbf{SONG\_WITHIN\_ALBUM}(\underline{album\_id}, \underline{song\_id}, track\_number)
+    \item \textbf{COLLECTION}(\underline{collection\_id}, creator\_username, collection\_name, creation\_date)
+    \item \textbf{SONG\_WITHIN\_COLLECTION}(\underline{collection\_id}, \underline{song\_id})
+    \item \textbf{USER\_FOLLOW}(\underline{follower\_user\_id}, \underline{followed\_user\_id})
+    \item \textbf{LISTEN}(\underline{listener\_username}, \underline{song\_id}, \underline{date\_of\_view})
+    \item \textbf{RATING}(\underline{rater\_username}, \underline{song\_id}, rating)
+    \item \textbf{SONG\_GENRE}(\underline{song\_id}, \underline{genre\_id})
+    \item \textbf{ALBUM\_GENRE}(\underline{album\_id}, \underline{genre\_id})
+\end{itemize}
+
+\subsection{Sample DDL (Table Creation Examples)}
+Below are two representative \texttt{CREATE TABLE} statements the app relies on (users \& listens). All other tables follow the same conventions.
+
+\paragraph{1. USER} .
+\begin{lstlisting}
+CREATE TABLE "USER" (
+  username       VARCHAR(20) PRIMARY KEY,
+  first_name     VARCHAR(40) NOT NULL,
+  last_name      VARCHAR(40) NOT NULL,
+  email          VARCHAR(255) UNIQUE NOT NULL,
+  password       VARCHAR(60)  NOT NULL,  -- bcrypt hash
+  display_name   VARCHAR(50)  NOT NULL,
+  creation_date  TIMESTAMP    NOT NULL DEFAULT NOW(),
+  last_accessed  TIMESTAMP
+);
+\end{lstlisting}
+
+\paragraph{2. LISTEN} .
+\begin{lstlisting}
+CREATE TABLE LISTEN (
+  listener_username VARCHAR(20) NOT NULL,
+  song_id           VARCHAR(20) NOT NULL,
+  date_of_view      TIMESTAMP   NOT NULL,
+  CONSTRAINT listen_pk PRIMARY KEY (listener_username, song_id, date_of_view),
+  CONSTRAINT listen_user_fk FOREIGN KEY (listener_username)
+      REFERENCES "USER"(username),
+  CONSTRAINT listen_song_fk FOREIGN KEY (song_id)
+      REFERENCES SONG(song_id)
+);
+\end{lstlisting}
+
+\paragraph{(Reference) Composite-Unique link tables used with ON CONFLICT} .
+\begin{lstlisting}
+CREATE TABLE USER_FOLLOW (
+  follower_user_id VARCHAR(20) NOT NULL,
+  followed_user_id VARCHAR(20) NOT NULL,
+  CONSTRAINT user_follow_pk PRIMARY KEY (follower_user_id, followed_user_id),
+  CONSTRAINT user_follow_self_chk CHECK (follower_user_id <> followed_user_id),
+  CONSTRAINT user_follow_f_fk FOREIGN KEY (follower_user_id) REFERENCES "USER"(username),
+  CONSTRAINT user_follow_d_fk FOREIGN KEY (followed_user_id) REFERENCES "USER"(username)
+);
+
+CREATE TABLE SONG_WITHIN_COLLECTION (
+  collection_id VARCHAR(20) NOT NULL,
+  song_id       VARCHAR(20) NOT NULL,
+  CONSTRAINT swc_pk PRIMARY KEY (collection_id, song_id),
+  CONSTRAINT swc_collection_fk FOREIGN KEY (collection_id) REFERENCES COLLECTION(collection_id),
+  CONSTRAINT swc_song_fk       FOREIGN KEY (song_id)       REFERENCES SONG(song_id)
+);
+
+CREATE TABLE RATING (
+  rater_username VARCHAR(20) NOT NULL,
+  song_id        VARCHAR(20) NOT NULL,
+  rating         INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  CONSTRAINT rating_pk PRIMARY KEY (rater_username, song_id),
+  CONSTRAINT rating_user_fk FOREIGN KEY (rater_username) REFERENCES "USER"(username),
+  CONSTRAINT rating_song_fk FOREIGN KEY (song_id)        REFERENCES SONG(song_id)
+);
+\end{lstlisting}
+
+\subsection{Application Queries (2 per Table)}
+The app primarily \emph{writes} to user-centric tables and \emph{reads} from catalog tables. Below, each table has two representative queries (parameterized and example).
+
+\paragraph{\textbf{USER}} 
+\textit{Insert (signup)}
+\begin{lstlisting}
+INSERT INTO "USER" (first_name, last_name, email, username, password, display_name, creation_date)
+VALUES ($1, $2, $3, $4, $5, $6, NOW());
+-- e.g. VALUES ('Ada','Lovelace','ada@example.com','adal','<bcrypt>','Ada L.', NOW());
+\end{lstlisting}
+
+\textit{Touch last access (login)}
+\begin{lstlisting}
+UPDATE "USER" SET last_accessed = NOW() WHERE username = $1;
+-- e.g. WHERE username = 'adal';
+\end{lstlisting}
+
+\paragraph{\textbf{USER\_FOLLOW}}
+\textit{Follow (idempotent)}
+\begin{lstlisting}
+INSERT INTO USER_FOLLOW (follower_user_id, followed_user_id)
+VALUES ($1, $2)
+ON CONFLICT (follower_user_id, followed_user_id) DO NOTHING;
+-- e.g. ('adal','turing')
+\end{lstlisting}
+
+\textit{Unfollow}
+\begin{lstlisting}
+DELETE FROM USER_FOLLOW
+WHERE follower_user_id = $1 AND followed_user_id = $2;
+-- e.g. ('adal','turing')
+\end{lstlisting}
+
+\paragraph{\textbf{COLLECTION}}
+\textit{Create collection}
+\begin{lstlisting}
+INSERT INTO COLLECTION (collection_id, creator_username, collection_name, creation_date)
+VALUES ($1, $2, $3, NOW());
+-- e.g. ('#MyFav2025','adal','My Favorites', NOW())
+\end{lstlisting}
+
+\textit{Rename collection}
+\begin{lstlisting}
+UPDATE COLLECTION SET collection_name = $1 WHERE collection_id = $2;
+-- e.g. ('Chill Mix', '#MyFav2025')
+\end{lstlisting}
+
+\paragraph{\textbf{SONG\_WITHIN\_COLLECTION}}
+\textit{Add song (idempotent)}
+\begin{lstlisting}
+INSERT INTO SONG_WITHIN_COLLECTION (collection_id, song_id)
+VALUES ($1, $2)
+ON CONFLICT (collection_id, song_id) DO NOTHING;
+-- e.g. ('#MyFav2025','S123')
+\end{lstlisting}
+
+\textit{Remove song}
+\begin{lstlisting}
+DELETE FROM SONG_WITHIN_COLLECTION
+WHERE collection_id = $1 AND song_id = $2;
+-- e.g. ('#MyFav2025','S123')
+\end{lstlisting}
+
+\paragraph{\textbf{LISTEN}}
+\textit{Record play}
+\begin{lstlisting}
+INSERT INTO LISTEN (listener_username, song_id, date_of_view)
+VALUES ($1, $2, NOW());
+-- e.g. ('adal','S123', NOW())
+\end{lstlisting}
+
+\textit{Get play count for a song}
+\begin{lstlisting}
+SELECT COUNT(*) AS play_count
+FROM LISTEN
+WHERE song_id = $1;
+-- e.g. ('S123')
+\end{lstlisting}
+
+\paragraph{\textbf{RATING}}
+\textit{Upsert rating (write-once per user/song)}
+\begin{lstlisting}
+INSERT INTO RATING (rater_username, song_id, rating)
+VALUES ($1, $2, $3)
+ON CONFLICT (rater_username, song_id) DO UPDATE
+SET rating = EXCLUDED.rating;
+-- e.g. ('adal','S123', 5)
+\end{lstlisting}
+
+\textit{Song average rating}
+\begin{lstlisting}
+SELECT ROUND(AVG(rating)::numeric, 2) AS avg_rating
+FROM RATING
+WHERE song_id = $1;
+-- e.g. ('S123')
+\end{lstlisting}
+
+\paragraph{\textbf{SONG} (catalog reads)}
+\textit{Insert song (ETL/seed path)}
+\begin{lstlisting}
+INSERT INTO SONG (song_id, title, length_ms, release_date)
+VALUES ($1, $2, $3, $4);
+-- e.g. ('S123','Hello World',183000, DATE '2022-05-01')
+\end{lstlisting}
+
+\textit{Search songs for UI (title/artist/album/genre)}
+\begin{lstlisting}
+SELECT s.song_id, s.title, s.length_ms, s.release_date
+FROM SONG s
+WHERE s.title ILIKE ('%' || $1 || '%')
+ORDER BY s.title ASC;
+-- e.g. ($1 := 'world')
+\end{lstlisting}
+
+\subsection{ETL and Data Loading}
+We got the majority of song, artist, and album information from the million song database. Specifically the SQLite databases found on this website, \url{http://millionsongdataset.com/pages/getting-dataset/\#subset}.
+
+We used the table songs from track\_metadata.db and then mapped it to different tables, we first segmented out the top 10,000 songs from the songs table. 
+
+A deterministic sample of 10{,}000 songs is selected via:
+\begin{lstlisting}
+LIMIT 10000;
+\end{lstlisting}
+
+All load operations are executed within a single transaction and are idempotent through the use of \texttt{ON CONFLICT} clauses.
+
+\subsubsection*{Mapping (left is million song db songs table, right is our tables)}
+
+\begin{itemize}
+    \item \texttt{title} $\rightarrow$ \texttt{SONG.title}
+    \item \texttt{song\_id} $\rightarrow$ \texttt{SONG.song\_id}
+    \item \texttt{release} $\rightarrow$ \texttt{ALBUM.album\_name}
+    \item \texttt{artist\_id} $\rightarrow$ \texttt{ARTIST.artist\_id}
+    \item \texttt{artist\_name} $\rightarrow$ \texttt{ARTIST.artist\_name}
+    \item \texttt{duration (s)} $\rightarrow$ \texttt{SONG.length\_ms = ROUND(duration * 1000)}
+    \item \texttt{year (0 $\rightarrow$ NULL)} $\rightarrow$ \texttt{release\_date = DATE 'year-01-01'}
+    \item \texttt{artist\_term.term} $\rightarrow$ \texttt{GENRE.genre\_name} (filtered to our genre domain)
+\end{itemize}
+
+\subsubsection*{Genre Attribution and Album Construction}
+
+\paragraph{Genre mapping.}
+We use \texttt{artist\_term.db} (\texttt{artist\_term} table) to map each artist’s terms to their songs. Terms not in our genre domain are discarded; the remaining terms are inserted into \texttt{SONG\_GENRE}. 
+
+\paragraph{Unspecified identifiers.}
+Any remaining surrogate IDs not sourced from MSD are generated (with uniqueness validated) to avoid collisions.
+
+\paragraph{Album workflow.}
+After \texttt{SONG}, \texttt{SONG\_GENRE}, \texttt{ARTIST}, \texttt{GROUP}, and \texttt{ARTIST\_IN\_GROUP} are populated (noting that \texttt{GROUP} and \texttt{ARTIST\_IN\_GROUP} initially lack album links), we construct albums as follows:
+
+\begin{enumerate}
+    \item \textbf{Insert \texttt{ALBUM} from \texttt{SONGS}.}  
+    For tracked \texttt{song\_id} values, insert rows using \texttt{release} as \texttt{album\_name}. At this stage, \texttt{album\_name} temporarily acts as a key.
+    
+    \item \textbf{Assign \texttt{album\_id} and date.}  
+    Generate a unique \texttt{album\_id} for each row and set \texttt{release\_date} (e.g., to \texttt{CURRENT\_DATE}). This step leaves \texttt{group\_id} unset; it is resolved later.
+    
+    \item \textbf{Populate \texttt{SONG\_WITHIN\_ALBUM}.}  
+    Join \texttt{SONGS} to \texttt{ALBUM} on \texttt{release = album\_name}; attach each \texttt{song\_id} to the corresponding \texttt{album\_id}.
+    
+    \item \textbf{Insert \texttt{GROUP} from \texttt{SONGS}.}  
+    Set \texttt{group\_name = SONGS.release}.
+    
+    \item \textbf{Assign \texttt{group\_id}.}  
+    Generate unique \texttt{group\_id} values for all groups.
+    
+    \item \textbf{Insert \texttt{ARTIST\_IN\_GROUP}.}  
+    For each song where \texttt{release = group\_name}, insert (\texttt{group\_id}, \texttt{artist\_id}).
+    
+    \item \textbf{Backfill \texttt{ALBUM.group\_id}.}  
+    Update \texttt{ALBUM} by joining on \texttt{album\_name = group\_name}.
+    
+    \item \textbf{Normalize group naming.}  
+    Optionally append \texttt{' group'} to \texttt{group\_name}.
+    
+    \item \textbf{Insert \texttt{ALBUM\_GENRE}.}  
+    Derive album genres from \texttt{SONG\_GENRE} via \texttt{SONG\_WITHIN\_ALBUM}: insert (\texttt{album\_id}, \texttt{genre\_id}) for songs contained in each album.
+\end{enumerate}
+
+\subsubsection*{User Generation}
+Because the database didn't have user information we had to generate that information ourselves. This led to 2 Python scripts being created (found within the repository within the "userGeneration" folder), to handle first the creation of \texttt{USER}, \texttt{LISTEN}, \texttt{RATING}, \texttt{COLLECTION}, and \texttt{SONG\_WITHIN\_COLLECTION}, and then the second script independently to the first one's metadata created the \texttt{USER\_FOLLOW} table.
+
+\paragraph{First Python Script}
+In order to have more depth with users it was decided that each user would have specific metadata that would be used when it was being created. This metadata and explanations are.
+\begin{enumerate}
+    \item Favorite Genres - This influenced both the rating of a song, and what songs were randomly listened to.
+    \item Favorite Artists - This influenced the rating of songs, and they listened to the song associated with this artist.
+    \item User Happiness - This random integer between 0 and 2 inclusive, was directly added to rating.
+    \item User Activity - This random integer between 5 and 40 inclusive, determined how many random songs were chosen.
+    \item User Stinginess - This random float between 0.10 and 1.0 inclusive, determined the proportion of listened to songs that were of the user's favorite genre.
+\end{enumerate}
+
+The User's username, first and last name, were randomly selected from a list of predetermined names and usernames, if username was the same it added an incremental number to the end (ie: if bob already existed the username would be bob1, then bob2, etc). Passwords were all set to "password" and encrypted. Display name was a 50/50 between the username and the user's first and last name. And the email was the username with a randomized email added to the end.
+
+Rating for a song was determined by the equation, \texttt{1 + (rand 0/1) + (if fav group +1) + (if fav genre +2) + (user happiness)}, this equation uncapped is how many times a user listened to a song, and then once capped it was inserted into the rating table.
+
+Collection names were randomly made through the username list, and each song inside the random song list had a Rating/5 chance to be added to the current collection buffer, once the songs inside the colleciton buffer reached 6 it was flushed by being inserted into \texttt{COLLECTION} and \texttt{SONG\_WITHIN\_COLLECTION}.
+
+\paragraph{Second Python Script}
+This created user follows, each user would follow 10 other accounts, and your follower count + 1 determined your probability to be followed, and as more accounts were followed this changed the probability of being chosen.
+
+
+\subsection{Five Sample Seed INSERTs}
+\begin{lstlisting}
+-- 1) Group / Artist examples (if used by your dataset)
+INSERT INTO "GROUP" (group_id, group_name) VALUES ('&GR10003','Radiohead');
+INSERT INTO ARTIST (artist_id, artist_name)  VALUES ('@AR5566','Mac DeMarco');
+
+-- 2) Album
+INSERT INTO ALBUM (album_id, album_name, release_date)
+VALUES ('$ALB5','After Dark', DATE '2016-02-01');
+
+-- 3) Song
+INSERT INTO SONG (song_id, title, length_ms, release_date)
+VALUES ('ZX90P','Midnight Run',199000, DATE '2025-12-20');
+
+-- 4) Track listing
+INSERT INTO SONG_WITHIN_ALBUM (album_id, song_id, track_number)
+VALUES ('$ALB5','ZX90P',1);
+
+-- 5) One UI-facing seed path
+INSERT INTO "USER"(username, first_name, last_name, email, password, display_name, creation_date)
+VALUES ('adal','Ada','Lovelace','ada@example.com','<bcrypt-60>','Ada L.', NOW());
+\end{lstlisting}
+
+\subsection{Validation and Notes}
+\begin{itemize}
+  \item Composite PKs: \texttt{USER\_FOLLOW}, \texttt{SONG\_WITHIN\_COLLECTION}, \texttt{RATING}, \texttt{LISTEN}.
+  \item All app-facing writes use parameterized SQL and \texttt{ON CONFLICT} where appropriate to avoid duplicates.
+  \item Passwords are stored as bcrypt hashes (\texttt{VARCHAR(60)}).
+  \item Foreign keys ensure referential integrity across users, songs, collections, and activity logs.
+\end{itemize}
+
+
+% PHASE 3 DOCUMENTATION
+\section{Data Analysis and Recommendation System (Phase 3)}
+\subsection{Hypothesis}
+Use this section to state the objectives of your data analysis; what are the observations you are expecting to find. Note that your final
+observations may end up differing from your proposal, which is also a valid result.
+\subsection{Data Preprocessing}
+Use this section to describe the pre-processing steps you have performed to prepare the data for analytics. Preprocessing steps may include: data cleaning (e.g., filling missing values, fixing outliers), formatting the data (e.g., resolving issues like inconsistent abbreviations, multiples date format in the data), combining or splitting fields, add new information (data enrichness).
+
+Explain how the data was extracted from the database for the analysis; if you used complex queries or views, or both.
+\subsection{Data Analytics \& Visualization}
+Use this section to explain the process/techniques used to analyze the data, use data visualization to present the results, and explain them.
+\subsection{Indexing}
+Use this section to explain the indexes that you added to speed up your queries.  If you did not add any indexing, you should justify why no indexes were added.  This section should have indexing/justification for 5 indexes. 
+\subsection{Conclusions}
+Use this section to explain the conclusions drawn from your data analysis.\\
+\subsection{Recommendation System}
+Briefly explain your recommendation system. This includes the underlying algorithm used to recommend options to the user.\\
+\section{Lessons Learned}
+Use this section to describe the issues you faced during the project and how you overcame them. Also, describe what you learned during this effort; this section, like the others, plays a critical component in determining your final grade.\\
+
+
+\section{Resources}
+Include in this section the resources you have used in your project beyond the normal code development such as data sets or data analytic tools (i.e. Weka, R).
+
+\section{SQL Appendix}
+This section will list the SQL statements used in Phase 3 of the project. This includes the analytic and recommendation system SQL queries.
+
+\end{document}
