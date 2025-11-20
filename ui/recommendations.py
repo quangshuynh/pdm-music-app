@@ -297,6 +297,13 @@ class RecommendationsFrame(ttk.Frame):
         – play history of similar users in `listen`
 
         Similar users: share at least 3 songs with the current user.
+
+        Returns rows:
+        (song_id, song, artist, album, length_ms, release_date, release_year, listen_count, score)
+
+        where:
+        – listen_count = global distinct listens for the song
+        – score        = recommendation strength (used for ordering only)
         """
         sql = f"""
             WITH user_listens AS (
@@ -332,12 +339,17 @@ class RecommendationsFrame(ttk.Frame):
                     s.length_ms,
                     COALESCE(MIN(s.release_date), MIN(al.release_date)) AS release_date,
                     EXTRACT(YEAR FROM COALESCE(MIN(s.release_date), MIN(al.release_date))) AS release_year,
-                    c.score
+                    c.score,
+                    COALESCE(
+                        COUNT(DISTINCT (li_all.listener_username, li_all.date_of_view)),
+                        0
+                    ) AS listen_count
                 FROM candidate_plays c
                 JOIN song s               ON s.song_id = c.song_id
                 LEFT JOIN "GROUP" g       ON g.group_id = s.group_id
                 LEFT JOIN song_within_album swa ON swa.song_id = s.song_id
                 LEFT JOIN album al        ON al.album_id = swa.album_id
+                LEFT JOIN listen li_all   ON li_all.song_id = s.song_id
                 GROUP BY s.song_id, s.title, s.length_ms, g.group_name, c.score
             )
             SELECT
@@ -348,6 +360,7 @@ class RecommendationsFrame(ttk.Frame):
                 length_ms,
                 release_date,
                 release_year,
+                listen_count,
                 score
             FROM recommended_songs
             ORDER BY score DESC, LOWER(song) ASC
@@ -459,8 +472,11 @@ class RecommendationsFrame(ttk.Frame):
 
     def _populate_recommendation_rows(self, rows):
         """
-        rows: (song_id, song, artist, album, length_ms, release_date, release_year, score)
-        We'll show 'score' as listen_count-ish.
+        rows: (song_id, song, artist, album, length_ms, release_date, release_year,
+               listen_count, score)
+
+        We *display* listen_count in the "Listens" column, while keeping score only
+        for ordering within the SQL.
         """
         if self.current_cols is not self.COLS_SONG:
             self._setup_columns(self.COLS_SONG)
@@ -474,7 +490,8 @@ class RecommendationsFrame(ttk.Frame):
             length_ms,
             _release_date,
             release_year,
-            score,
+            listen_count,
+            _score,
         ) in rows:
             values = [
                 "▶ Play",
@@ -483,7 +500,7 @@ class RecommendationsFrame(ttk.Frame):
                 album or "",
                 self._fmt_len(length_ms),
                 str(int(release_year)) if release_year else "",
-                int(score or 0),
+                int(listen_count or 0),
             ]
             self.tree.insert("", "end", iid=f"song_{song_id}", values=values)
 
@@ -566,8 +583,8 @@ class RecommendationsFrame(ttk.Frame):
                         (song_id, self.app.session.username, self.app.session.username),
                     )
                 else:
-                    # For recommendations or any other song-based view,
-                    # fall back to global distinct count like SongsFrame
+                    # For recommendations or any other song-based view that doesn't
+                    # have a special filter, fall back to global distinct count.
                     cur.execute(
                         """
                         SELECT COALESCE(COUNT(DISTINCT (listener_username, date_of_view)), 0)
