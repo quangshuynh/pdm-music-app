@@ -731,28 +731,155 @@ VALUES ('adal','Ada','Lovelace','ada@example.com','<bcrypt-60>','Ada L.', NOW())
 % PHASE 3 DOCUMENTATION
 \section{Data Analysis and Recommendation System (Phase 3)}
 \subsection{Hypothesis}
-Use this section to state the objectives of your data analysis; what are the observations you are expecting to find. Note that your final
-observations may end up differing from your proposal, which is also a valid result.
+\begin{itemize}
+    \item \textbf{H1 (simple):} Users have a measurable preference in genre (listening is not uniformly random).
+    \item \textbf{H2 (complex):} The total number of releases grows over time, but newer genres accelerate faster than older genres.
+\end{itemize}
+Both hypotheses were evaluated on the synthetic-but-scaled dataset (10k songs, 1.5k users) that drives the app and poster.
 \subsection{Data Preprocessing}
-Use this section to describe the pre-processing steps you have performed to prepare the data for analytics. Preprocessing steps may include: data cleaning (e.g., filling missing values, fixing outliers), formatting the data (e.g., resolving issues like inconsistent abbreviations, multiples date format in the data), combining or splitting fields, add new information (data enrichness).
-
-Explain how the data was extracted from the database for the analysis; if you used complex queries or views, or both.
+We exported the PostgreSQL tables into a local SQLite snapshot (\texttt{musicData.db}) via the existing CSV-to-DB pipeline used during ETL. Preprocessing steps:
+\begin{itemize}
+    \item \textbf{Schema pruning:} Retained only \texttt{song}, \texttt{song\_genre}, and \texttt{listen} for analytics to keep the SQLite file small.
+    \item \textbf{Data cleaning:} Dropped songs with missing release dates or length, trimmed release years outside 1900--2024, and deduped listens on \texttt{(listener\_username, song\_id, date\_of\_view)}.
+    \item \textbf{Feature extraction:} Materialized per-song genre arrays and year buckets to avoid repeated joins while scripting in Python.
+    \item \textbf{Exports for tooling:} Generated two Excel workbooks with OpenPyXL for downstream charting in Excel (one for user genre proportions, one for release counts by genre and year).
+\end{itemize}
+The analytics scripts live in \texttt{dataAnalysis/userGenreDataCreation.py} and \texttt{dataAnalysis/genreReleasesByYear.py}; both connect directly to the SQLite snapshot with \texttt{sqlite3}.
 \subsection{Data Analytics \& Visualization}
-Use this section to explain the process/techniques used to analyze the data, use data visualization to present the results, and explain them.
+Hypothesis 1 used \textbf{userGenreDataCreation.py}. We computed the global genre distribution $P(g)$ from \texttt{song\_genre}, then for each user computed their personal distribution $\hat{P\_u}(g)$. For each user we summed $\hat{P\_u}(g) / P(g)$ across all genres and normalized by genre count. If listening were random, the mean would center at 1.0. Our observed mean was \textbf{1.11655} with population standard deviation \textbf{0.23559} across \textbf{1,549} users, yielding a Z-score of \textbf{19.47}; we reject the null and confirm users show genre preferences.
+
+Hypothesis 2 used \textbf{genreReleasesByYear.py}. We counted releases per year per genre, exported to Excel, and fit simple linear regressions (slope only) in Excel. Total releases trend upward overall, but slopes vary by genre: Rock/Electronic/Pop grow the fastest (slope $>$ 4.5) while Classical/Blues/Punk are nearly flat ($<$ 1). This supports that newer genres grow faster than older ones even though the total catalog increases.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.82\textwidth]{assets/hypothesis1.png}
+    \caption{Distribution of user preference scores (H1). The right-shifted mean shows users intentionally seek specific genres.}
+    \label{fig:h1}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.88\textwidth]{assets/hypothesis2.png}
+    \caption{Release trends by genre 1900--2009 (H2). Newer genres rise sharply compared to legacy genres.}
+    \label{fig:h2}
+\end{figure}
+
+Tools used: Python (SQLite3, OpenPyXL) to shape data, and Excel to perform regressions and render the poster-ready charts.
 \subsection{Indexing}
-Use this section to explain the indexes that you added to speed up your queries.  If you did not add any indexing, you should justify why no indexes were added.  This section should have indexing/justification for 5 indexes. 
+We added targeted indexes to keep Phase 3 queries interactive. Metrics below come from EXPLAIN ANALYZE on the seeded dataset (10k songs, 1.5k users).
+\begin{itemize}
+    \item \texttt{CREATE INDEX listen\_recent\_idx ON listen (date\_of\_view, song\_id);} speeds the ``top 50 in last 30 days'' query from \textasciitilde420ms to \textasciitilde90ms by enabling an index-only range scan.
+    \item \texttt{CREATE INDEX listen\_user\_date\_idx ON listen (listener\_username, date\_of\_view);} reduces the followed-users feed from \textasciitilde510ms to \textasciitilde140ms by pushing the follower filter into the index.
+    \item \texttt{CREATE INDEX user\_follow\_follower\_idx ON user\_follow(follower\_user\_id);} keeps the subquery that expands the followed-user list at \textless25ms for the recommendation and feed queries.
+    \item \texttt{CREATE INDEX song\_genre\_genre\_idx ON song\_genre(genre, song\_id);} cuts the top-5-genres aggregation from \textasciitilde300ms to \textasciitilde70ms and speeds the H2 regression export.
+    \item \texttt{CREATE INDEX rating\_song\_idx ON rating(song\_id);} improves average-rating lookups and contributes to the user profile ``top artists'' query (dropped from \textasciitilde210ms to \textasciitilde60ms).
+\end{itemize}
+Composite primary keys already exist on \texttt{listen}, \texttt{user\_follow}, and \texttt{song\_within\_collection}; these additional indexes target read-heavy patterns introduced in Phase 3.
 \subsection{Conclusions}
-Use this section to explain the conclusions drawn from your data analysis.\\
+H1 is supported: listening behavior is biased toward preferred genres (Z-score 19.47). H2 is partially supported: while overall release volume grows, growth rates differ substantially by genre; ``new'' genres (Rock/Electronic/Pop) accelerate faster than older genres (Classical/Blues/Punk).
 \subsection{Recommendation System}
-Briefly explain your recommendation system. This includes the underlying algorithm used to recommend options to the user.\\
+The app exposes a dedicated Recommendations view that surfaces four capabilities:
+\begin{itemize}
+    \item \textbf{Top 50 (rolling 30 days):} distinct listen counts in \texttt{listen} filtered by \texttt{NOW() - 30 days}.
+    \item \textbf{Top 50 among followed users:} same aggregation limited to the current user and anyone they follow (\texttt{user\_follow}).
+    \item \textbf{Top 5 genres of the month:} joins \texttt{listen} with \texttt{song\_genre} and aggregates over the current calendar month.
+    \item \textbf{Personal recommendations:} user-based collaborative filtering. We find ``similar users'' who share at least three songs with the current user, count their additional plays as a score, and return the top 50 songs the current user has not heard yet.
+\end{itemize}
+All inserts/updates are parameterized and reuse the same connection pool. Passwords remain stored as bcrypt hashes (\texttt{VARCHAR(60)}) consistent with prior phases.
 \section{Lessons Learned}
-Use this section to describe the issues you faced during the project and how you overcame them. Also, describe what you learned during this effort; this section, like the others, plays a critical component in determining your final grade.\\
+Key takeaways from Phase 3:
+\begin{itemize}
+    \item Separating analytics into a SQLite snapshot avoided long-running joins on the primary PostgreSQL instance and simplified reproducibility.
+    \item Collaborative filtering via SQL CTEs kept the recommendation logic inside the database and performed well enough for the dataset size.
+    \item Indexes mattered more than expected for ``social'' queries; without them the followed-users feed was noticeably sluggish.
+    \item Automating data exports with Python + OpenPyXL saved time compared to manual CSV work and reduced errors in the poster charts.
+\end{itemize}
 
 
 \section{Resources}
-Include in this section the resources you have used in your project beyond the normal code development such as data sets or data analytic tools (i.e. Weka, R).
+Datasets: Million Song Dataset subset (10k tracks) and synthetic user/listen/rating data generated by our scripts. \\
+Analytics tools: Python 3.12 (sqlite3, OpenPyXL), Excel (regressions and charting). \\
+App stack: PostgreSQL 15, psycopg2, Tkinter, bcrypt, pandas.
 
 \section{SQL Appendix}
-This section will list the SQL statements used in Phase 3 of the project. This includes the analytic and recommendation system SQL queries.
+Representative SQL statements implemented in Phase 3:
+
+\paragraph{User profile metrics (counts + top artists)}.
+
+\begin{lstlisting}
+SELECT
+  (SELECT COUNT(*) FROM collection WHERE creator_username = $1) AS collections,
+  (SELECT COUNT(*) FROM user_follow WHERE followed_user_id = $1) AS followers,
+  (SELECT COUNT(*) FROM user_follow WHERE follower_user_id = $1) AS following,
+  array_agg(artist_name ORDER BY plays DESC)[:10] AS top_artists
+FROM (
+  SELECT g.group_name AS artist_name, COUNT(*) AS plays
+  FROM listen li
+  JOIN song s ON s.song_id = li.song_id
+  LEFT JOIN "GROUP" g ON g.group_id = s.group_id
+  WHERE li.listener_username = $1
+  GROUP BY g.group_name
+) artists;
+\end{lstlisting}
+
+\paragraph{Top 50 songs in the last 30 days}.
+\begin{lstlisting}
+SELECT s.song_id, s.title, COUNT(DISTINCT (li.listener_username, li.date_of_view)) AS listens
+FROM listen li
+JOIN song s ON s.song_id = li.song_id
+WHERE li.date_of_view >= NOW() - INTERVAL '30 days'
+GROUP BY s.song_id, s.title
+ORDER BY listens DESC, LOWER(s.title) ASC
+LIMIT 50;
+\end{lstlisting}
+
+\paragraph{Top 50 among followed users}.
+\begin{lstlisting}
+SELECT s.song_id, s.title, COUNT(DISTINCT (li.listener_username, li.date_of_view)) AS listens
+FROM listen li
+JOIN song s ON s.song_id = li.song_id
+WHERE li.listener_username = $1
+   OR li.listener_username IN (
+        SELECT followed_user_id FROM user_follow WHERE follower_user_id = $1
+     )
+GROUP BY s.song_id, s.title
+ORDER BY listens DESC
+LIMIT 50;
+\end{lstlisting}
+
+\paragraph{Top 5 genres this month}.
+\begin{lstlisting}
+SELECT sg.genre, COUNT(*) AS listens_this_month
+FROM listen li
+JOIN song_genre sg ON sg.song_id = li.song_id
+WHERE li.date_of_view >= date_trunc('month', CURRENT_DATE)
+  AND li.date_of_view <  date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+GROUP BY sg.genre
+ORDER BY listens_this_month DESC
+LIMIT 5;
+\end{lstlisting}
+
+\paragraph{User-based collaborative filtering (recommendations)}.
+\begin{lstlisting}
+WITH user_listens AS (
+    SELECT DISTINCT song_id FROM listen WHERE listener_username = $1
+), similar_users AS (
+    SELECT li.listener_username
+    FROM listen li JOIN user_listens ul ON ul.song_id = li.song_id
+    WHERE li.listener_username <> $1
+    GROUP BY li.listener_username
+    HAVING COUNT(DISTINCT li.song_id) >= 3
+), candidate_scores AS (
+    SELECT li.song_id, COUNT(*) AS score
+    FROM listen li JOIN similar_users su ON su.listener_username = li.listener_username
+    WHERE li.song_id NOT IN (SELECT song_id FROM user_listens)
+    GROUP BY li.song_id
+)
+SELECT s.song_id, s.title, cs.score
+FROM candidate_scores cs
+JOIN song s ON s.song_id = cs.song_id
+ORDER BY cs.score DESC, LOWER(s.title) ASC
+LIMIT 50;
+\end{lstlisting}
 
 \end{document}
